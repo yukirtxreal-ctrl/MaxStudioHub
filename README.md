@@ -5,8 +5,9 @@
 <h1 align="center">Max Studio Hub</h1>
 
 <p align="center">
-  A simple Windows app for your local AI image tools. Install, launch and update ComfyUI, Forge,
-  Fooocus and Kohya with a click — and you can drop in any GitHub repo and let it handle the setup.
+  A simple Windows app for your local AI tools. Install, launch and update ComfyUI, Forge and
+  Fooocus (image generation) plus Kohya (training) with a click — and you can drop in any GitHub
+  repo and let it handle the setup.
 </p>
 
 <p align="center">
@@ -15,10 +16,11 @@
 
 ---
 
-This is a small Windows app I put together so I could run my local AI image tools without
+This is a small Windows app I put together so I could run my local AI tools without
 fighting Python setups and the command line every time. It installs, launches, updates, and stops
-ComfyUI, Forge, Fooocus, and Kohya with a click, and runs as a normal desktop window (not a browser
-tab — no tabs, no address bar). It'll also tell you when one of the tools has an update waiting.
+the image generators — ComfyUI, Forge, Fooocus — and the Kohya training GUI with a click, and runs
+as a normal desktop window (not a browser tab — no tabs, no address bar). It'll also tell you when
+one of the tools has an update waiting.
 
 | Tool | What it's for | Web UI |
 |------|----------------|--------|
@@ -45,8 +47,10 @@ That opens the app window. The launched AI tools still serve their own web UIs �
 > The app is installed at `%LOCALAPPDATA%\Programs\MaxStudioHub\` (outside OneDrive). The
 > source lives in this `AI-Launcher` folder.
 
-**Prerequisites:** the four tools need **Python 3.10** and **Git**. `Start.bat` installs Python 3.10
-automatically via winget if it's missing, and the app shows a banner with a one-click fix when needed.
+**Prerequisites:** the four built-in tools need **Python 3.10** and **Git**. `Start.bat` installs
+Python 3.10 automatically via winget if it's missing, and the app shows a banner with a one-click fix
+when needed. Repos you add yourself may have other requirements — the app installs what it can and
+shows anything still missing in that tool's log.
 
 ### 🔁 The app follows this folder live
 
@@ -54,8 +58,10 @@ The installed app **mirrors this `AI-Launcher` folder**: it serves its UI from `
 `tools.json` straight from here (a `live_source.txt` next to the exe points at this folder).
 So when these files change, the app updates itself:
 
-- Edit anything in **`web/`** (look, layout, logo, text) → the open app **auto-reloads** within ~2 s.
-- Edit **`tools.json`** (ports, a tool's commands) → applied live by the built-in watcher.
+- Edit anything in **`web/`** (look, layout, logo, text) → the open window notices and **reloads
+  itself** within ~2 s.
+- Edit **`tools.json`** (ports, a tool's commands) → the backend re-reads it live (a folder watcher
+  picks it up within ~2 s).
 - **Add/remove tools** and **install state** → already tracked live.
 
 You don't have to rebuild for those. Only changes to the **backend code** (`server.py` / `app.py`)
@@ -71,8 +77,8 @@ downloads it and **works out how to set it up and run it — no coding needed**:
 - **If the repo ships its own app/UI** (Gradio, Streamlit, a web app), it runs that.
 - **If the repo is just a library/tool with no UI** (like a one-function image refiner), Max Studio
   Hub **auto-builds a simple web UI for it** — it inspects the repo's main function and generates an
-  upload-your-input → run → see-the-result page (powered by Gradio, **no AI and no cost**). So you can
-  actually *use* the tool, not just run a demo. Click **▶ Launch**, then **🌐 Open UI**.
+  upload-your-input → run → see-the-result page (a small Gradio app that runs locally on your machine).
+  So you can actually *use* the tool, not just run a demo. Click **▶ Launch**, then **🌐 Open UI**.
 - Also detects **Node** apps, repos with a `run.bat`/`setup.bat`, **Docker** projects, and **static** sites.
 - Works out the **run command** by reading the README, then looking for a known entry file
   (`app.py`, `main.py`, `example.py`, a `streamlit_app.py`, a script that imports a web framework,
@@ -89,7 +95,7 @@ the common cases. The added repo is a normal card with the same **Install / Laun
 
 For the rare repo it can't figure out, open **⚙ Run config** and paste the command from the README
 (e.g. `python app.py --port 7860`), an optional **port**, and any extra **pip packages**. Remove a
-tool with **🗑** (your downloaded files are kept).
+tool with **🗑** — it asks to confirm, then deletes the tool **and its downloaded files** from disk.
 
 > Works best with Python / Node / `.bat` repos. Some repos need extra system tools (a specific Python
 > version, CUDA, ffmpeg, etc.) — the app installs what it can and shows anything missing in the log.
