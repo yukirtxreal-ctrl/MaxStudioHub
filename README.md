@@ -1,4 +1,20 @@
-# 🎛️ Max Studio Hub
+<p align="center">
+  <img src="assets/app.png" alt="Max Studio Hub" width="116" />
+</p>
+
+<h1 align="center">Max Studio Hub</h1>
+
+<p align="center">
+  One clean Windows app for all your local AI image tools — install, launch, update, stop, and
+  security-scan ComfyUI, Forge, Fooocus &amp; Kohya_ss in a click, or paste any GitHub repo and let
+  it set things up for you.
+</p>
+
+<p align="center">
+  <a href="https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest"><b>⬇&nbsp; Download the latest release</b></a>
+</p>
+
+---
 
 A native Windows **desktop app** that **installs, launches, updates, and stops** four local
 AI image tools — each with a single click — and tells you when an update is available. It's a
