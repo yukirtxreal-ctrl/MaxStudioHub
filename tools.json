@@ -1,0 +1,119 @@
+{
+  "_comment": "Registry of managed AI tools. You can edit ports, python_version, torch index, and launch_env here. ${...} placeholders are filled in at runtime by server.py: ${venv_python}, ${python}, ${git}, ${port}, ${tool_dir}, ${clone_url}, ${branch}.",
+  "default_install_root": "C:\\AItools",
+  "launcher_port": 8765,
+  "tools": [
+    {
+      "id": "comfyui",
+      "name": "ComfyUI",
+      "emoji": "🧩",
+      "color": "#8b5cf6",
+      "description": "Node-graph diffusion engine. Most flexible SD/SDXL/Flux backend. Web UI on port 8188.",
+      "repo": "https://github.com/comfy-org/comfyui",
+      "clone_url": "https://github.com/comfy-org/comfyui.git",
+      "branch": "master",
+      "submodules": false,
+      "dir": "ComfyUI",
+      "python_version": "3.10",
+      "needs_venv": true,
+      "port": 8188,
+      "url": "http://127.0.0.1:8188",
+      "auto_update_on_launch": false,
+      "first_launch_installs": false,
+      "install_steps": [
+        ["${venv_python}", "-m", "pip", "install", "--upgrade", "pip", "wheel"],
+        ["${venv_python}", "-m", "pip", "install", "torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu128"],
+        ["${venv_python}", "-m", "pip", "install", "-r", "requirements.txt"],
+        ["${git}", "clone", "https://github.com/Comfy-Org/ComfyUI-Manager.git", "custom_nodes/comfyui-manager"],
+        ["${venv_python}", "-m", "pip", "install", "-r", "custom_nodes/comfyui-manager/requirements.txt"]
+      ],
+      "launch_cmd": ["${venv_python}", "main.py", "--port", "${port}"],
+      "launch_env": {},
+      "update_steps": [
+        ["${venv_python}", "-m", "pip", "install", "-r", "requirements.txt"]
+      ],
+      "notes": "ComfyUI-Manager is bundled in automatically (custom_nodes/comfyui-manager) — use the 'Manager' button in the ComfyUI UI to install custom nodes & models. Place model checkpoints in ComfyUI\\models\\checkpoints. torch installs from the CUDA 12.8 (cu128) index for RTX 50-series — uses --index-url (NOT --extra-index-url) so pip can't fall back to the CPU build on PyPI. For ComfyUI's newest optimized CUDA kernels you can switch the index to cu130; cu128 works fine otherwise."
+    },
+    {
+      "id": "forge",
+      "name": "SD WebUI Forge",
+      "emoji": "🔥",
+      "color": "#f97316",
+      "description": "A1111-style WebUI, optimized. Great all-rounder for SD/SDXL/Flux. Web UI on port 7860.",
+      "repo": "https://github.com/lllyasviel/stable-diffusion-webui-forge",
+      "clone_url": "https://github.com/lllyasviel/stable-diffusion-webui-forge.git",
+      "branch": "main",
+      "submodules": false,
+      "dir": "stable-diffusion-webui-forge",
+      "python_version": "3.10",
+      "needs_venv": false,
+      "port": 7860,
+      "url": "http://127.0.0.1:7860",
+      "auto_update_on_launch": false,
+      "first_launch_installs": true,
+      "install_steps": [],
+      "launch_cmd": ["webui.bat", "--port", "${port}"],
+      "launch_env": {
+        "PYTHON": "${python}",
+        "TORCH_COMMAND": "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128"
+      },
+      "update_steps": [],
+      "notes": "First launch builds its own venv and downloads ~6GB of torch/deps (several minutes). TORCH_COMMAND is overridden to cu128 for RTX 50-series; clear it if you are on an older GPU."
+    },
+    {
+      "id": "fooocus",
+      "name": "Fooocus",
+      "emoji": "🎨",
+      "color": "#38bdf8",
+      "description": "Simplest SDXL app — Midjourney-like, zero config. Auto-updates on launch. Web UI on port 7865.",
+      "repo": "https://github.com/lllyasviel/Fooocus",
+      "clone_url": "https://github.com/lllyasviel/Fooocus.git",
+      "branch": "main",
+      "submodules": false,
+      "dir": "Fooocus",
+      "python_version": "3.10",
+      "needs_venv": true,
+      "port": 7865,
+      "url": "http://127.0.0.1:7865",
+      "auto_update_on_launch": true,
+      "first_launch_installs": true,
+      "install_steps": [
+        ["${venv_python}", "-m", "pip", "install", "--upgrade", "pip"],
+        ["${venv_python}", "-m", "pip", "install", "pygit2==1.15.1"]
+      ],
+      "launch_cmd": ["${venv_python}", "entry_with_update.py", "--port", "${port}"],
+      "launch_env": {
+        "TORCH_COMMAND": "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128"
+      },
+      "update_steps": [],
+      "notes": "First launch installs deps and downloads ~30GB of default SDXL models. entry_with_update.py self-updates (git pull) every launch. TORCH_COMMAND overridden to cu128 for RTX 50-series."
+    },
+    {
+      "id": "kohya",
+      "name": "Kohya_ss",
+      "emoji": "🎓",
+      "color": "#f43f5e",
+      "description": "LoRA / Dreambooth / fine-tune TRAINING GUI (not image generation). Web UI on port 7806.",
+      "repo": "https://github.com/bmaltais/kohya_ss",
+      "clone_url": "https://github.com/bmaltais/kohya_ss.git",
+      "branch": "master",
+      "submodules": true,
+      "dir": "kohya_ss",
+      "python_version": "3.10",
+      "needs_venv": false,
+      "port": 7806,
+      "url": "http://127.0.0.1:7806",
+      "auto_update_on_launch": false,
+      "first_launch_installs": false,
+      "install_steps": [
+        ["setup.bat"]
+      ],
+      "launch_cmd": ["gui.bat", "--server_port", "${port}", "--inbrowser"],
+      "launch_env": {},
+      "update_steps": [
+        ["setup.bat"]
+      ],
+      "notes": "Uses a git submodule (sd-scripts) — cloned with --recurse-submodules and updated with submodule update. Port set to 7806 to avoid clashing with Forge (7860). setup.bat builds its own venv."
+    }
+  ]
+}

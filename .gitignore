@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# Generated / machine-specific runtime data (the app recreates these)
+config.json
+custom_tools.json
+repo_cache.json
+live_source.txt
+assets/logo-*.ico
+
+# OS cruft
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

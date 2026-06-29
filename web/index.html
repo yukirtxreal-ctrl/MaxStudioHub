@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Max Studio Hub</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><g stroke='%235fd2ff' stroke-width='7' stroke-linecap='round'><line x1='57' y1='50' x2='93' y2='50'/><line x1='56' y1='53.5' x2='87' y2='71.5'/><line x1='53.5' y1='56' x2='71.5' y2='87'/><line x1='50' y1='57' x2='50' y2='93'/><line x1='46.5' y1='56' x2='28.5' y2='87'/><line x1='43.5' y1='53.5' x2='12.5' y2='71.5'/><line x1='43' y1='50' x2='7' y2='50'/><line x1='43.5' y1='46.5' x2='12.5' y2='28.5'/><line x1='46.5' y1='43.5' x2='28.5' y2='12.5'/><line x1='50' y1='43' x2='50' y2='7'/><line x1='53.5' y1='43.5' x2='71.5' y2='12.5'/><line x1='56' y1='46.5' x2='87' y2='28.5'/></g></svg>" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <g stroke="#5fd2ff" stroke-width="6.4" stroke-linecap="round">
+            <line x1="57" y1="50" x2="93" y2="50"/>
+            <line x1="56.06" y1="53.5" x2="87.24" y2="71.5"/>
+            <line x1="53.5" y1="56.06" x2="71.5" y2="87.24"/>
+            <line x1="50" y1="57" x2="50" y2="93"/>
+            <line x1="46.5" y1="56.06" x2="28.5" y2="87.24"/>
+            <line x1="43.94" y1="53.5" x2="12.76" y2="71.5"/>
+            <line x1="43" y1="50" x2="7" y2="50"/>
+            <line x1="43.94" y1="46.5" x2="12.76" y2="28.5"/>
+            <line x1="46.5" y1="43.94" x2="28.5" y2="12.76"/>
+            <line x1="50" y1="43" x2="50" y2="7"/>
+            <line x1="53.5" y1="43.94" x2="71.5" y2="12.76"/>
+            <line x1="56.06" y1="46.5" x2="87.24" y2="28.5"/>
+          </g>
+        </svg>
+        <div>
+          <h1>Max Studio Hub</h1>
+          <p class="tagline">Install · Launch · Update — all your local AI tools in one place</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="addToolBtn" class="btn btn-primary" title="Add any GitHub repo and let the app set it up">➕ Add tool</button>
+        <button id="checkAllBtn" class="btn btn-ghost" title="Check every tool for available updates">
+          <span class="spin-target">⟳</span> Check all for updates
+        </button>
+        <button id="settingsBtn" class="btn btn-ghost" title="Settings">⚙️</button>
+      </div>
+    </header>
+
+    <section id="prereqBar" class="prereq-bar hidden"></section>
+
+    <main class="layout">
+      <section class="cards" id="cards">
+        <!-- tool cards injected here -->
+        <div class="loading">Loading tools…</div>
+      </section>
+
+      <aside class="console-panel">
+        <div class="console-head">
+          <div class="console-tabs" id="consoleTabs"></div>
+          <div class="console-head-actions">
+            <button id="clearLogBtn" class="btn btn-tiny btn-ghost" title="Clear this log view">Clear</button>
+            <button id="autoscrollBtn" class="btn btn-tiny btn-ghost is-on" title="Toggle auto-scroll">Auto-scroll ✓</button>
+          </div>
+        </div>
+        <pre id="console" class="console"><span class="muted">Select a tool, or run an action — output appears here.</span></pre>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <span id="footerInfo">Install root: <code id="installRoot">…</code></span>
+      <span class="footer-sep">·</span>
+      <span id="footerHost">Server: <code id="hostInfo">…</code></span>
+    </footer>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>⚙️ Settings</h2>
+        <button class="modal-close" data-close>✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">Install root folder</span>
+          <span class="field-hint">Where tools, models &amp; virtual-envs live. <strong>Keep this OUTSIDE OneDrive</strong> — syncing multi-GB model files will corrupt them and thrash your disk.</span>
+          <input id="installRootInput" type="text" spellcheck="false" />
+        </label>
+        <div class="field">
+          <span class="field-label">Environment</span>
+          <div id="envInfo" class="env-grid"></div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm modal -->
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-card modal-sm">
+      <div class="modal-head"><h2 id="confirmTitle">Confirm</h2><button class="modal-close" data-close>✕</button></div>
+      <div class="modal-body"><p id="confirmMsg"></p></div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button id="confirmOkBtn" class="btn btn-primary">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add a repository modal -->
+  <div id="addModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>➕ Add a repository</h2>
+        <button class="modal-close" data-close>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="field-hint" style="margin-bottom:14px">
+          Paste any <strong>GitHub</strong> repo link (or <code>owner/repo</code>). The app downloads it
+          and works out how to install &amp; run it — it figures out Python apps (incl. Gradio/Streamlit),
+          Node apps, and repos with a <code>run.bat</code>. You don't need to know how to code.
+        </p>
+        <label class="field">
+          <span class="field-label">Repository</span>
+          <input id="addRepoInput" type="text" spellcheck="false"
+                 placeholder="https://github.com/owner/repo  ·  or  owner/repo" />
+        </label>
+        <label class="field">
+          <span class="field-label">Display name <span class="muted">(optional)</span></span>
+          <input id="addNameInput" type="text" spellcheck="false" placeholder="Auto-filled from the repo" />
+        </label>
+        <div id="addStatus" class="add-status hidden"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button id="addOkBtn" class="btn btn-primary">Add repository</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run config modal (manual override for custom tools) -->
+  <div id="runcfgModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="runcfgTitle">⚙ Run config</h2>
+        <button class="modal-close" data-close>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="field-hint" style="margin-bottom:14px">Only needed if the auto-setup guessed wrong.
+          Check the repo's README for the right command.</p>
+        <label class="field">
+          <span class="field-label">Run command</span>
+          <span class="field-hint">e.g. <code>python app.py</code>, <code>python webui.py --port 7860</code>, <code>npm run dev</code>, <code>run.bat</code></span>
+          <input id="runcfgCmd" type="text" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span class="field-label">Web port <span class="muted">(optional)</span></span>
+          <span class="field-hint">So the “Open UI” button knows where to look (leave blank to auto-detect from output).</span>
+          <input id="runcfgPort" type="text" spellcheck="false" placeholder="e.g. 7860" />
+        </label>
+        <label class="field">
+          <span class="field-label">Extra pip packages <span class="muted">(optional)</span></span>
+          <span class="field-hint">Installed into this tool's environment, space-separated.</span>
+          <input id="runcfgPip" type="text" spellcheck="false" placeholder="e.g. flask gradio" />
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close>Cancel</button>
+        <button id="runcfgOkBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Security report modal -->
+  <div id="securityModal" class="modal hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-head">
+        <h2 id="securityTitle">🛡 Security report</h2>
+        <button class="modal-close" data-close>✕</button>
+      </div>
+      <div class="modal-body" id="securityBody"></div>
+      <div class="modal-foot">
+        <span class="sec-disclaimer">Heuristic scan — flags risk signals, not a guarantee. Never executes scanned code.</span>
+        <button class="btn btn-ghost" data-close>Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
