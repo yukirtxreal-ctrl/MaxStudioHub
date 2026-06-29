@@ -5,9 +5,8 @@
 <h1 align="center">Max Studio Hub</h1>
 
 <p align="center">
-  One clean Windows app for all your local AI image tools — install, launch, update, stop, and
-  security-scan ComfyUI, Forge, Fooocus &amp; Kohya_ss in a click, or paste any GitHub repo and let
-  it set things up for you.
+  A simple Windows app for your local AI image tools. Install, launch and update ComfyUI, Forge,
+  Fooocus and Kohya with a click — and you can drop in any GitHub repo and let it handle the setup.
 </p>
 
 <p align="center">
@@ -16,9 +15,10 @@
 
 ---
 
-A native Windows **desktop app** that **installs, launches, updates, and stops** four local
-AI image tools — each with a single click — and tells you when an update is available. It's a
-real application window (Edge WebView2), **not** a browser tab: no tabs, no address bar.
+This is a small Windows app I put together so I could run my local AI image tools without
+fighting Python setups and the command line every time. It installs, launches, updates, and stops
+ComfyUI, Forge, Fooocus, and Kohya with a click, and runs as a normal desktop window (not a browser
+tab — no tabs, no address bar). It'll also tell you when one of the tools has an update waiting.
 
 | Tool | What it's for | Web UI |
 |------|----------------|--------|
