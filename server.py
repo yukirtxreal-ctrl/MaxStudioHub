@@ -436,6 +436,30 @@ def run_capture(argv, cwd=None, timeout=25):
         return 1, f"{e}"
 
 
+def pids_on_port(port):
+    """Return the set of PIDs LISTENING on a TCP port (via Windows netstat)."""
+    pids = set()
+    _rc, out = run_capture(["netstat", "-ano", "-p", "TCP"], timeout=10)
+    needle = f":{port}"
+    for line in out.splitlines():
+        parts = line.split()
+        if (len(parts) >= 5 and parts[3].upper() == "LISTENING"
+                and parts[1].endswith(needle)):
+            pid = parts[-1]
+            if pid.isdigit() and pid != "0":
+                pids.add(int(pid))
+    return pids
+
+
+def kill_port(port):
+    """Force-kill every process (and its child tree) listening on a port."""
+    killed = []
+    for pid in pids_on_port(port):
+        run_capture(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=20)
+        killed.append(pid)
+    return killed
+
+
 # --------------------------------------------------------------------------- #
 #  Manager: owns config, registry and per-tool runtime state
 # --------------------------------------------------------------------------- #
@@ -1389,6 +1413,12 @@ class Manager:
             for step in tool.get("update_steps", []):
                 self.run_step(tool, step, cwd=tdir, env=env)
             self.log(tid, "ok", f"=== {tool['name']} updated ===")
+            # Re-scan the freshly pulled code: an update can bring in new
+            # commits that the install-time scan never saw, so the safety
+            # check has to run again — for every tool, built-in or added.
+            with rt.lock:
+                rt.scanning = True
+            threading.Thread(target=self._scan_worker, args=(tid,), daemon=True).start()
         except Exception as e:
             self.log(tid, "err", f"Update failed: {e}")
             with rt.lock:
@@ -1410,9 +1440,25 @@ class Manager:
                 return False, f"{tool['name']} is already running."
             if rt.state != "idle":
                 return False, f"{tool['name']} is busy ({rt.state})."
-            if tool.get("port") and port_open(tool["port"]):
-                return False, (f"Port {tool['port']} is already in use — another "
-                               f"instance may be running.")
+        # If the port is held by a stray/previous instance we aren't tracking,
+        # free it first (outside the lock — may run taskkill and wait a moment)
+        # so Launch always recovers instead of getting stuck.
+        _port = tool.get("port")
+        if _port and port_open(_port):
+            self.log(tid, "sys", f"Port {_port} was busy — stopping the old "
+                                 f"instance first…")
+            for ppid in pids_on_port(_port):
+                run_capture(["taskkill", "/PID", str(ppid), "/T", "/F"], timeout=20)
+            for _ in range(40):
+                if not port_open(_port):
+                    break
+                time.sleep(0.25)
+            if port_open(_port):
+                return False, (f"Port {_port} is still in use. Close whatever is "
+                               f"using it, then try again.")
+        with rt.lock:
+            if rt.state != "idle":
+                return False, f"{tool['name']} is busy ({rt.state})."
             # A user-added repo with no run command yet → auto-set-up on Launch
             # (re-detect + install the bits it needs), so the user never has to
             # touch ⚙ Run config for the common cases.
@@ -1545,13 +1591,28 @@ class Manager:
     def stop(self, tid):
         tool = self.by_id[tid]
         rt = self.rt[tid]
+        port = tool.get("port")
         with rt.lock:
-            if rt.state != "running" or not rt.pid:
-                return False, f"{tool['name']} is not running."
             pid = rt.pid
+            if not pid and not (port and port_open(port)):
+                return False, f"{tool['name']} is not running."
             rt.state = "stopping"
-        self.log(tid, "sys", f"Stopping {tool['name']} (pid {pid})…")
-        run_capture(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=20)
+        self.log(tid, "sys", f"Stopping {tool['name']}…")
+        killed = set()
+        # 1) the process we launched, plus its whole child tree
+        if pid:
+            run_capture(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=20)
+            killed.add(pid)
+        # 2) anything still holding the tool's port — covers an instance left
+        #    running from a previous launcher session, so nothing lingers.
+        if port:
+            for ppid in pids_on_port(port):
+                if ppid in killed:
+                    continue
+                self.log(tid, "sys",
+                         f"Also stopping leftover process {ppid} on port {port}…")
+                run_capture(["taskkill", "/PID", str(ppid), "/T", "/F"], timeout=20)
+                killed.add(ppid)
         # give the pump thread a moment to notice the exit
         for _ in range(20):
             with rt.lock:
@@ -2086,10 +2147,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             d = M.tool_dir(M.by_id[tid])
             try:
-                if os.path.isdir(d):
-                    os.startfile(d)  # noqa
-                else:
-                    os.startfile(M.install_root)  # noqa
+                # Prefer the tool's own folder; if it isn't downloaded yet,
+                # fall back to the install root (creating it if needed so the
+                # 📁 button always opens *something* for every card).
+                target = d if os.path.isdir(d) else M.install_root
+                if not os.path.isdir(target):
+                    os.makedirs(target, exist_ok=True)
+                os.startfile(target)  # noqa
                 self._send_json({"ok": True})
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
