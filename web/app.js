@@ -91,6 +91,10 @@ function cardButtons(t) {
   const p = state.prereqs;
   const repoBtn = `<a class="btn btn-tiny btn-ghost" href="${esc(t.repo)}" target="_blank" title="Open GitHub repo">GitHub ↗</a>`;
   const busy = ["installing", "updating", "stopping"].includes(t.state);
+  const revealTitle = t.installed
+    ? "Open this tool's folder in Explorer"
+    : "Open the install folder (this tool isn't downloaded yet)";
+  const revealBtn = `<button class="btn btn-ghost btn-tiny" data-act="reveal" data-id="${t.id}" title="${revealTitle}">📁</button>`;
   const scanBtn = `<button class="btn btn-ghost btn-tiny" data-act="scan" data-id="${t.id}" ${t.scanning ? "disabled" : ""} title="Read-only safety scan of this tool's files">
       <span class="${t.scanning ? "spin" : ""}">🛡</span> ${t.scanning ? "Scanning…" : "Scan"}</button>`;
   const customBtns = t.custom ? `
@@ -103,6 +107,7 @@ function cardButtons(t) {
     return `
       <button class="btn btn-primary" data-act="install" data-id="${t.id}" ${blocked || busy ? "disabled" : ""} title="${tip}">
         <span class="${t.state === "installing" ? "spin" : ""}">⬇</span> ${t.custom ? "Download & set up" : "Install"}</button>
+      ${revealBtn}
       ${customBtns}
       ${repoBtn}`;
   }
@@ -112,6 +117,7 @@ function cardButtons(t) {
       <button class="btn btn-primary" data-act="open" data-id="${t.id}" ${t.ready ? "" : "disabled"} title="Open the tool's web UI">
         ${t.ready ? "🌐 Open UI" : "⏳ Starting…"}</button>
       <button class="btn btn-danger" data-act="stop" data-id="${t.id}">⏹ Stop</button>
+      ${revealBtn}
       ${scanBtn}
       ${repoBtn}`;
   }
@@ -121,7 +127,7 @@ function cardButtons(t) {
     <button class="btn btn-success" data-act="launch" data-id="${t.id}" ${busy ? "disabled" : ""}>▶ Launch</button>
     <button class="btn ${hasUpdate ? "btn-warn" : "btn-ghost"}" data-act="update" data-id="${t.id}" ${busy ? "disabled" : ""} title="git pull + reinstall changed deps">
       <span class="${t.state === "updating" ? "spin" : ""}">⟳</span> Update${hasUpdate ? ` (${t.update.behind})` : ""}</button>
-    <button class="btn btn-ghost btn-tiny" data-act="reveal" data-id="${t.id}" title="Open install folder">📁</button>
+    ${revealBtn}
     ${scanBtn}
     ${customBtns}
     ${repoBtn}`;

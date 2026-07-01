@@ -143,9 +143,10 @@ position, and repo intros.)
 
 ## 🛡 Safety scan
 
-Every installed tool has a **🛡 Scan** button, and a scan also runs **automatically right after an
-install**. It's a **read-only heuristic check — it never executes any scanned code** — that walks the
-tool's files (skipping the venv and model folders) and flags:
+Every installed tool — built-in or one you added yourself — has a **🛡 Scan** button, and a scan also
+runs **automatically after every install and every update** (so code pulled in by a later update gets
+re-checked, not just the version you first installed). It's a **read-only heuristic check — it never
+executes any scanned code** — that walks the tool's files (skipping the venv and model folders) and flags:
 
 - 🔴 **High-risk signals** — obfuscated `exec`/`eval` (base64/hex/marshal), PowerShell `-EncodedCommand`,
   `curl|wget | sh`, data-exfiltration webhooks (Discord/Telegram), crypto-miner strings, `netcat -e`
