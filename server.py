@@ -390,7 +390,9 @@ def load_json(path, default=None):
 
 
 def save_json(path, data):
-    tmp = path + ".tmp"
+    # Unique temp name per writer so concurrent saves (watcher refresh, installs,
+    # description fetches) can't collide on one shared ".tmp" and corrupt the file.
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
@@ -1169,6 +1171,10 @@ class Manager:
             except (TypeError, ValueError):
                 pass
         tool["configured"] = True
+        # Stamp the detector version so Launch treats this hand-entered config as
+        # up to date and never re-runs auto-detection over it (which would wipe the
+        # user's run command). Also keeps it sticky across future DETECT_VERSION bumps.
+        tool["detect_version"] = DETECT_VERSION
         self._save_custom()
         self.revision += 1
         return True, "saved"
@@ -1212,7 +1218,10 @@ class Manager:
                 if c and os.path.exists(c):
                     found = c
                     break
-        self._python_cache[version] = found
+        # Cache only positive results — caching None would keep reporting Python as
+        # missing even after the user installs it, until the app is restarted.
+        if found:
+            self._python_cache[version] = found
         return found
 
     # ----- placeholder substitution -----
@@ -1481,6 +1490,8 @@ class Manager:
         try:
             self.log(tid, "sys", "Figuring out how to run this repo…")
             self._detect_and_configure(tool)
+            if tool.get("kind") == "node":
+                self._ensure_node(tid)
             if not tool.get("launch_cmd"):
                 self.log(tid, "err", "Couldn't auto-detect a run command. Open "
                                      "⚙ Run config and paste the command from the README.")
@@ -1579,6 +1590,8 @@ class Manager:
                     return
             if port and port_open(port):
                 with rt.lock:
+                    if rt.state != "running":
+                        return          # process already exited — don't mark it ready
                     if not rt.ready:
                         rt.ready = True
                         if not rt.detected_url:
@@ -1631,7 +1644,7 @@ class Manager:
     def refresh_commit(self, tid):
         tool = self.by_id[tid]
         rt = self.rt[tid]
-        if not self.is_installed(tool):
+        if not self.is_installed(tool) or not GIT:
             with rt.lock:
                 rt.commit = {"short": None, "subject": None, "branch": None}
             return
@@ -2049,7 +2062,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/log":
             tid = (q.get("tool") or [None])[0]
-            since = int((q.get("since") or ["0"])[0])
+            try:
+                since = int((q.get("since") or ["0"])[0])
+            except (ValueError, TypeError):
+                since = 0
             if tid not in M.rt:
                 self._send_json({"error": "unknown tool"}, 404)
                 return

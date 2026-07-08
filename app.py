@@ -8,7 +8,6 @@ Windows app window (Edge WebView2) - no browser, no tabs, no address bar.
 
 import os
 import socket
-import sys
 import threading
 
 import webview
