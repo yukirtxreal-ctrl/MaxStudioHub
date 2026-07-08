@@ -101,6 +101,16 @@ function cardButtons(t) {
       <button class="btn btn-ghost btn-tiny" data-act="runconfig" data-id="${t.id}" title="Set or override the run command">⚙ Run config</button>
       <button class="btn btn-ghost btn-tiny" data-act="remove" data-id="${t.id}" title="Remove this tool">🗑</button>` : "";
 
+  // Security gate: a user-added repo was cloned but its pre-setup scan flagged
+  // high-risk signals. Don't offer the normal buttons — force a review decision.
+  if (t.blocked) {
+    return `
+      <button class="btn btn-danger" data-act="scanreport" data-id="${t.id}" title="See exactly what was flagged">🛡 Review security report</button>
+      <button class="btn btn-warn" data-act="setupanyway" data-id="${t.id}" title="Ignore the warnings and install/run this repo anyway">⚠ Set up anyway</button>
+      <button class="btn btn-ghost btn-tiny" data-act="remove" data-id="${t.id}" title="Delete this repo from your computer">🗑 Remove</button>
+      ${repoBtn}`;
+  }
+
   if (!t.installed) {
     const blocked = !p.git.ok || !p.python.ok;
     const tip = blocked ? "Install Git and Python first (see banner above)" : "Clone & set up this tool";
@@ -140,11 +150,14 @@ function cardSecurity(t) {
   const review = (s.medium || 0) + (s.pickles || 0);
   if (s.verdict === "danger")
     return `<div class="sec-line danger" data-act="scanreport" data-id="${t.id}" title="View the security report">
-      ⚠ ${s.high} high-risk signal${s.high === 1 ? "" : "s"} found — click to review</div>`;
+      <b>⛔ DANGEROUS</b> — ${s.high} high-risk signal${s.high === 1 ? "" : "s"} · click to review</div>`;
   if (s.verdict === "error")
     return `<div class="sec-line warn" data-act="scanreport" data-id="${t.id}">🛡 Scan couldn't finish — click for details</div>`;
+  if (review)
+    return `<div class="sec-line warn" data-act="scanreport" data-id="${t.id}" title="View the security report">
+      <b>⚠ CAUTION</b> — no high-risk signals · ${review} item${review === 1 ? "" : "s"} to review</div>`;
   return `<div class="sec-line ok" data-act="scanreport" data-id="${t.id}" title="View the security report">
-    🛡 No high-risk signals${review ? ` · ${review} to review` : ""}</div>`;
+    <b>✓ SAFE</b> — no risky signals found</div>`;
 }
 
 function cardMeta(t) {
@@ -164,6 +177,8 @@ function cardMeta(t) {
 }
 
 function cardNote(t) {
+  if (t.blocked)
+    return `<div class="update-note" style="color:#ffd9d9;border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.12)">⛔ <b>Setup paused by the security scan.</b> This repo was cloned, but nothing was installed or run yet. Review the report before continuing — only “Set up anyway” if you trust the source.</div>`;
   if (t.error)
     return `<div class="update-note" style="color:#ffd9d9;border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.07)">⚠ ${esc(t.error)}</div>`;
   if (t.custom && t.installed && !t.run_cmd)
@@ -241,6 +256,19 @@ async function onAction(e) {
       if (state.active === id) state.active = (state.tools[0] || {}).id || null;
     } else toast(res.message || "Couldn't remove", "err");
     bootstrap();
+    return;
+  }
+
+  if (act === "setupanyway") {
+    const okc = await confirmDialog("Set up " + tool.name + " anyway?",
+      "The security scan flagged high-risk signals in this repo. Continuing will run its setup and let it execute code on your computer. Only proceed if you trust the source.");
+    if (!okc) return;
+    btn.disabled = true;
+    const res = await api("POST", "/api/install", { tool: id, ack: true });
+    if (!res.ok) toast(res.message || res.error || "Failed", "err");
+    else toast("Setting up " + tool.name + "…", "ok");
+    pollStatus();
+    refreshLog(true);
     return;
   }
 

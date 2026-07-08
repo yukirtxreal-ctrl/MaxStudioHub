@@ -492,6 +492,20 @@ _HIGH = [(re.compile(p, re.I), d) for p, d in [
      "Shells out to powershell/cmd/curl/wget"),
     (r"\b(nc|ncat|netcat)\b[^\n]*\s-e\b", "Reverse shell (netcat -e)"),
     (r"CurrentVersion.{0,3}Run\b", "References a Windows autostart Run key"),
+    (r"(Invoke-Expression|\biex\b)[^\n]{0,100}(Invoke-WebRequest|\biwr\b|Net\.WebClient|DownloadString|DownloadData)",
+     "PowerShell download-and-execute (iex + web request)"),
+    (r"(Invoke-WebRequest|\biwr\b|Net\.WebClient|DownloadString|DownloadData)[^\n]{0,100}\|\s*(iex|Invoke-Expression)",
+     "PowerShell download piped straight to execution ( ... | iex )"),
+    (r"(Set-MpPreference|Add-MpPreference)[^\n]*(-Disable|-Exclusion)",
+     "Tampers with / disables Windows Defender"),
+    (r"schtasks[^\n]*/create", "Creates a scheduled task (persistence technique)"),
+    (r"\breg(\.exe)?\s+add[^\n]*\\Run", "Adds a registry autostart (Run key) entry — persistence"),
+    (r"(wallet\.dat|\\Exodus\\|\\Electrum\\|MetaMask|\bkeystore\b|\bid_rsa\b|seed\s?phrase)",
+     "Accesses crypto-wallet / SSH-key / seed-phrase material (credential theft)"),
+    (r"(\\User Data\\|Login Data|cookies\.sqlite|Local State|moz_cookies)",
+     "Reads browser profile / saved-password data (info-stealer behavior)"),
+    (r"\bmshta(\.exe)?\b", "mshta — runs remote/obfuscated script payloads"),
+    (r"vssadmin[^\n]*delete[^\n]*shadow", "Deletes volume shadow copies (ransomware behavior)"),
 ]]
 _MEDIUM = [(re.compile(p, re.I), d) for p, d in [
     (r"\beval\s*\(", "eval() — dynamic code execution"),
@@ -507,6 +521,9 @@ _MEDIUM = [(re.compile(p, re.I), d) for p, d in [
     (r"shutil\.rmtree\s*\(", "recursive delete"),
     (r"os\.(remove|unlink)\s*\(", "file deletion"),
     (r"marshal\.loads\s*\(", "marshal.loads — executes serialized code objects"),
+    (r"(GetAsyncKeyState|SetWindowsHookEx|pynput\.keyboard|keyboard\.on_press|keyboard\.hook)",
+     "Keyboard hooking — possible keylogger (or a global hotkey)"),
+    (r"\bwinreg\.|\bimport\s+winreg\b", "Reads/writes the Windows registry"),
 ]]
 _EXEC_EVAL_RE = re.compile(r"\b(exec|eval)\s*\(", re.I)
 _DECODE_RE = re.compile(
@@ -557,6 +574,7 @@ class ToolRuntime:
                      "pickles": 0, "execs": 0, "scanned": 0, "when": 0,
                      "findings": [], "error": None}
         self.detected_url = None     # web URL discovered in a running app's output
+        self.blocked = False         # setup paused by the pre-setup security scan (danger)
 
 
 class Manager:
@@ -1313,16 +1331,23 @@ class Manager:
                 self.run_step(tool, step, cwd=cwd, env=self.build_env(tool))
 
     # ----- install -----
-    def install(self, tid):
+    def install(self, tid, ack=False):
         tool = self.by_id[tid]
         rt = self.rt[tid]
         with rt.lock:
             if rt.state != "idle":
                 return False, f"{tool['name']} is busy ({rt.state})."
-            if self.is_installed(tool):
+            # Allow a re-run when the security gate paused setup (rt.blocked) or the
+            # user clicked "Set up anyway" (ack); otherwise refuse if already set up.
+            if self.is_installed(tool) and not rt.blocked and not ack:
                 return False, f"{tool['name']} is already installed."
             rt.state = "installing"
             rt.error = None
+            if ack:
+                tool["scan_ack"] = True
+                rt.blocked = False
+        if ack and tool.get("custom"):
+            self._save_custom()
         threading.Thread(target=self._install_worker, args=(tid,), daemon=True).start()
         return True, "started"
 
@@ -1348,6 +1373,36 @@ class Manager:
                     clone += ["--recurse-submodules"]
                 clone += [tool["clone_url"], tdir]
                 self.run_step(tool, clone, cwd=self.install_root, env=self.build_env(tool))
+
+            # SECURITY GATE: for user-added repos, scan the freshly-cloned files
+            # BEFORE creating a venv or running any pip/setup step (those execute
+            # code). If the scan flags high-risk signals, stop and wait for the
+            # user to review and click "Set up anyway".
+            if tool.get("custom"):
+                self.log(tid, "sys", "=== Pre-setup security scan (nothing has run yet) ===")
+                with rt.lock:
+                    rt.scanning = True
+                self.revision += 1
+                scan = self._scan_repo(tid)
+                with rt.lock:
+                    rt.scan = scan
+                    rt.scanning = False
+                if scan["verdict"] == "danger" and not tool.get("scan_ack"):
+                    with rt.lock:
+                        rt.blocked = True
+                        rt.error = (f"Security scan flagged {scan['high']} high-risk "
+                                    f"signal(s) — review before setup.")
+                    self.log(tid, "err",
+                             f"⚠ SETUP PAUSED — {scan['high']} high-risk signal(s) found. "
+                             f"Nothing was installed or run. Open the security report to "
+                             f"review; click 'Set up anyway' only if you trust this repo.")
+                    self.revision += 1
+                    return
+                with rt.lock:
+                    rt.blocked = False
+                self.log(tid, "ok" if scan["verdict"] == "ok" else "sys",
+                         f"Pre-setup scan: {scan['high']} high-risk, {scan['medium']} "
+                         f"to-review — continuing setup.")
 
             # For a user-added repo, figure out how to set it up now that we have files.
             if tool.get("custom") and not tool.get("configured"):
@@ -1378,10 +1433,12 @@ class Manager:
             if tool.get("first_launch_installs"):
                 self.log(tid, "sys", "Note: the FIRST launch will download more "
                                      "dependencies/models and may take several minutes.")
-            # automatically run a safety scan on the freshly installed code
-            with rt.lock:
-                rt.scanning = True
-            threading.Thread(target=self._scan_worker, args=(tid,), daemon=True).start()
+            # Built-in tools are trusted and scanned here (post-setup). User-added
+            # repos were already scanned BEFORE setup by the security gate above.
+            if not tool.get("custom"):
+                with rt.lock:
+                    rt.scanning = True
+                threading.Thread(target=self._scan_worker, args=(tid,), daemon=True).start()
         except Exception as e:
             self.log(tid, "err", f"Install failed: {e}")
             with rt.lock:
@@ -1753,16 +1810,14 @@ class Manager:
         threading.Thread(target=self._scan_worker, args=(tid,), daemon=True).start()
         return True, "started"
 
-    def _scan_worker(self, tid):
+    def _scan_repo(self, tid):
+        """Read-only heuristic scan of the cloned files (no code is executed).
+        Returns a result dict; the caller stores it on rt.scan."""
         tool = self.by_id[tid]
-        rt = self.rt[tid]
         tdir = self.tool_dir(tool)
         findings = []
         high = medium = pickles = execs = scanned = 0
         err = None
-        self.log(tid, "sys", f"=== Security scan: {tool['name']} ===")
-        self.log(tid, "sys", "Read-only heuristic scan (no code is executed). "
-                             "Skipping venv & model folders.")
         try:
             for root, dirs, files in os.walk(tdir):
                 dirs[:] = [d for d in dirs if d.lower() not in SCAN_SKIP_DIRS
@@ -1813,20 +1868,29 @@ class Manager:
             self.log(tid, "err", f"scan error: {e}")
 
         verdict = "error" if err else ("danger" if high > 0 else "ok")
-        result = {"done": True, "verdict": verdict, "high": high, "medium": medium,
-                  "pickles": pickles, "execs": execs, "scanned": scanned,
-                  "when": time.time(), "findings": findings[:300], "error": err}
+        return {"done": True, "verdict": verdict, "high": high, "medium": medium,
+                "pickles": pickles, "execs": execs, "scanned": scanned,
+                "when": time.time(), "findings": findings[:300], "error": err}
+
+    def _scan_worker(self, tid):
+        """Threaded scan for the 🛡 Scan button (stores the result on rt.scan)."""
+        rt = self.rt[tid]
+        tool = self.by_id[tid]
+        self.log(tid, "sys", f"=== Security scan: {tool['name']} ===")
+        self.log(tid, "sys", "Read-only heuristic scan (no code is executed). "
+                             "Skipping venv & model folders.")
+        result = self._scan_repo(tid)
         with rt.lock:
             rt.scan = result
             rt.scanning = False
-        if high > 0:
+        if result["high"] > 0:
             self.log(tid, "err",
-                     f"=== SCAN RESULT: {high} HIGH-RISK signal(s) found — review before launching. "
-                     f"({medium} to review, {pickles} pickle file(s)) ===")
+                     f"=== SCAN RESULT: {result['high']} HIGH-RISK signal(s) found — review before launching. "
+                     f"({result['medium']} to review, {result['pickles']} pickle file(s)) ===")
         else:
             self.log(tid, "ok",
-                     f"=== SCAN RESULT: no high-risk signals. {medium} code item(s) + {pickles} "
-                     f"pickle file(s) flagged for review (normal for these tools). ===")
+                     f"=== SCAN RESULT: no high-risk signals. {result['medium']} code item(s) + "
+                     f"{result['pickles']} pickle file(s) flagged for review (normal for these tools). ===")
         self.revision += 1
 
     # ----- disk watcher: keep the app in sync with the folders on disk -----
@@ -1972,6 +2036,7 @@ class Manager:
                 "installed": self.is_installed(tool),
                 "state": rt.state, "ready": rt.ready, "pid": rt.pid,
                 "error": rt.error, "update": dict(rt.update), "commit": dict(rt.commit),
+                "blocked": rt.blocked,
                 "scanning": rt.scanning,
                 "scan": {k: rt.scan[k] for k in
                          ("done", "verdict", "high", "medium", "pickles",
@@ -2099,7 +2164,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/install":
             if not need_tool():
                 return
-            ok, msg = M.install(tid)
+            ok, msg = M.install(tid, ack=bool(body.get("ack")))
             self._send_json({"ok": ok, "message": msg})
         elif path == "/api/update":
             if not need_tool():
