@@ -3,7 +3,8 @@
 Max Studio Hub - native desktop application.
 
 Runs the control-panel server in a background thread and shows it inside a real
-Windows app window (Edge WebView2) - no browser, no tabs, no address bar.
+app window (Edge WebView2 on Windows, WKWebView on macOS) - no browser, no
+tabs, no address bar.
 """
 
 import os
@@ -61,13 +62,15 @@ def main():
 
     window.events.closing += on_closing
 
-    # Set a stable AppUserModelID so the taskbar groups/labels us as our own app.
-    try:
-        import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "MaxStudioHub.Launcher")
-    except Exception:
-        pass
+    # Set a stable AppUserModelID so the Windows taskbar groups/labels us as
+    # our own app (skipped on macOS — the .app bundle handles identity there).
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "MaxStudioHub.Launcher")
+        except Exception:
+            pass
 
     webview.start()
 

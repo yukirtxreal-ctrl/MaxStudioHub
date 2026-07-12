@@ -5,232 +5,174 @@
 <h1 align="center">Max Studio Hub</h1>
 
 <p align="center">
-  A simple Windows app for your local AI tools. Install, launch and update ComfyUI, Forge and
-  Fooocus (image generation) plus Kohya (training) with a click — and you can drop in any GitHub
-  repo and let it handle the setup.
+  One app to install, run, and update your local AI image tools.<br/>
+  Works on <b>Windows</b> and <b>Mac</b>. No coding needed.
 </p>
 
 <p align="center">
-  <a href="https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest"><b>⬇&nbsp; Download the latest release</b></a>
+  <a href="https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest/download/MaxStudioHub-Windows.zip"><b>⬇&nbsp; Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest/download/MaxStudioHub-macOS.zip"><b>⬇&nbsp; Download for Mac</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest">all versions</a>
 </p>
 
 ---
 
-This is a small Windows app I put together so I could run my local AI tools without
-fighting Python setups and the command line every time. It installs, launches, updates, and stops
-the image generators — ComfyUI, Forge, Fooocus — and the Kohya training GUI with a click, and runs
-as a normal desktop window (not a browser tab — no tabs, no address bar). It'll also tell you when
-one of the tools has an update waiting.
+## What is this?
 
-| Tool | What it's for | Web UI |
-|------|----------------|--------|
-| 🧩 **ComfyUI** | Node-graph diffusion engine (SD / SDXL / Flux) | http://127.0.0.1:8188 |
-| 🔥 **SD WebUI Forge** | A1111-style all-rounder, optimized | http://127.0.0.1:7860 |
-| 🎨 **Fooocus** | Simplest SDXL app, Midjourney-like | http://127.0.0.1:7865 |
-| 🎓 **Kohya_ss** | LoRA / Dreambooth **training** GUI | http://127.0.0.1:7806 |
+AI tools like ComfyUI are great, but setting them up is hard — Python versions, git
+commands, long install guides. Max Studio Hub does all of that for you. You click
+**Install**, it sets the tool up. You click **Launch**, it runs. It also tells you
+when a tool has an update, and it can set up almost any GitHub project you give it.
 
-Each tool gets its **own isolated Python environment**, so they never fight over package
-versions.
+It comes with these four tools built in:
 
-> 🧩 **ComfyUI ships with [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) built in.**
-> Installing ComfyUI also clones ComfyUI-Manager into `custom_nodes/` and installs its requirements,
-> so the **Manager** button is right there in the ComfyUI UI for adding custom nodes and models.
+| Tool | What it does | On a Mac |
+|------|--------------|----------|
+| 🧩 **ComfyUI** | Make images with a node graph. Very powerful. | ✅ works well |
+| 🔥 **SD WebUI Forge** | Classic image maker with lots of options. | ⚠️ experimental |
+| 🎨 **Fooocus** | The easiest image maker. Type a prompt, get a picture. | ✅ works (slower than NVIDIA) |
+| 🎓 **Kohya_ss** | Train your own styles (LoRA). Not for making images. | ⚠️ limited — training really wants an NVIDIA card |
+
+Each tool gets its own private Python setup, so they never break each other.
 
 ---
 
-## ▶ How to start
+## Set it up on Windows
 
-Double-click the **“Max Studio Hub”** icon on your **Desktop** (also in the Start menu).
-That opens the app window. The launched AI tools still serve their own web UIs — the app's
-**🌐 Open UI** button opens each one for you when it's ready.
+Works on any PC with **Windows 10 or newer**.
 
-> The app is installed at `%LOCALAPPDATA%\Programs\MaxStudioHub\` (outside OneDrive). The
-> source lives in this `AI-Launcher` folder.
+1. Download **[MaxStudioHub-Windows.zip](https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest/download/MaxStudioHub-Windows.zip)**.
+2. Right-click the zip → **Extract All** → open the new folder.
+3. Double-click **`MaxStudioHub.exe`**.
+4. If Windows says *"Windows protected your PC"*: click **More info**, then **Run anyway**.
+   (This happens because the app is free and not code-signed. All the code is open, right here.)
 
-**Prerequisites:** the four built-in tools need **Python 3.10** and **Git**. `Start.bat` installs
-Python 3.10 automatically via winget if it's missing, and the app shows a banner with a one-click fix
-when needed. Repos you add yourself may have other requirements — the app installs what it can and
-shows anything still missing in that tool's log.
+You also need **Git** and **Python 3.10** for the AI tools themselves.
+Don't worry — if they are missing, the app shows a yellow bar at the top with
+easy install steps.
 
-### 🔁 The app follows this folder live
+## Set it up on a Mac
 
-The installed app **mirrors this `AI-Launcher` folder**: it serves its UI from `web/` and reads
-`tools.json` straight from here (a `live_source.txt` next to the exe points at this folder).
-So when these files change, the app updates itself:
+Works on Macs with **macOS 11 or newer** — both **Apple chips (M1 and newer)**
+and **Intel chips**. Apple chips make images much faster.
 
-- Edit anything in **`web/`** (look, layout, logo, text) → the open window notices and **reloads
-  itself** within ~2 s.
-- Edit **`tools.json`** (ports, a tool's commands) → the backend re-reads it live (a folder watcher
-  picks it up within ~2 s).
-- **Add/remove tools** and **install state** → already tracked live.
+1. Download **[MaxStudioHub-macOS.zip](https://github.com/yukirtxreal-ctrl/MaxStudioHub/releases/latest/download/MaxStudioHub-macOS.zip)** and open it.
+2. Drag **`Max Studio Hub.app`** into your **Applications** folder.
+3. Double-click it. The **first** time, your Mac will block it (the app is free
+   and not registered with Apple). To open it:
+   **System Settings → Privacy & Security → scroll down → click "Open Anyway"**.
+   You only do this once. On older Macs: right-click the app → **Open** → **Open**.
 
-You don't have to rebuild for those. Only changes to the **backend code** (`server.py` / `app.py`)
-need a repackage — run `Build.ps1` for that.
+You also need:
 
----
+- **Git** — open the Terminal app and run: `xcode-select --install`
+- **Python 3.10** — run: `brew install python@3.10` (get Homebrew at [brew.sh](https://brew.sh))
 
-## ➕ Add any repository
-
-Click **➕ Add tool** (top-right) and paste any GitHub link (or `owner/repo`). Max Studio Hub
-downloads it and **works out how to set it up and run it — no coding needed**:
-
-- **If the repo ships its own app/UI** (Gradio, Streamlit, a web app), it runs that.
-- **If the repo is just a library/tool with no UI** (like a one-function image refiner), Max Studio
-  Hub **auto-builds a simple web UI for it** — it inspects the repo's main function and generates an
-  upload-your-input → run → see-the-result page (a small Gradio app that runs locally on your machine).
-  So you can actually *use* the tool, not just run a demo. Click **▶ Launch**, then **🌐 Open UI**.
-- Also detects **Node** apps, repos with a `run.bat`/`setup.bat`, **Docker** projects, and **static** sites.
-- Works out the **run command** by reading the README, then looking for a known entry file
-  (`app.py`, `main.py`, `example.py`, a `streamlit_app.py`, a script that imports a web framework,
-  or one with a `__main__` block).
-- Creates an isolated environment, installs the project's dependencies (`requirements.txt`,
-  `pyproject.toml`, `package.json`, …) **and** the extra libraries the chosen script actually
-  imports (e.g. it adds `opencv-python`/`matplotlib` if a demo needs them).
-- When the app starts a web UI, it **auto-detects the address** from the output and lights up
-  **🌐 Open UI** — even if the port wasn't known in advance.
-
-**You just click ▶ Launch — it sets itself up the first time and runs.** No “run config” step for
-the common cases. The added repo is a normal card with the same **Install / Launch / Update / Stop /
-🛡 Scan** buttons (and is safety-scanned automatically).
-
-For the rare repo it can't figure out, open **⚙ Run config** and paste the command from the README
-(e.g. `python app.py --port 7860`), an optional **port**, and any extra **pip packages**. Remove a
-tool with **🗑** — it asks to confirm, then deletes the tool **and its downloaded files** from disk.
-
-> Works best with Python / Node / `.bat` repos. Some repos need extra system tools (a specific Python
-> version, CUDA, ffmpeg, etc.) — the app installs what it can and shows anything missing in the log.
+The app shows a yellow bar with these steps if something is missing.
+On a Mac, images take longer to make than on an NVIDIA PC — that is normal.
 
 ---
 
-## 🖱️ What the buttons do
+## How to use it
 
-- **Install** – clones the tool from GitHub into your install folder and sets up its
-  environment. Forge and Fooocus finish their heavy setup (torch, models) on first launch.
-- **Launch** – starts the tool. When its page is ready, the button becomes **🌐 Open UI**.
-  Live output streams into the console at the right (pick the tool's tab).
-- **⏹ Stop** – cleanly kills the tool and all its child processes.
-- **⟳ Update** – your "update by a click" button: `git pull` (auto-stashing local tweaks),
-  submodule update where needed, and reinstall of changed dependencies. When a newer version
-  exists upstream the button turns **orange** with a count, e.g. **Update (7)**.
-- **Check all for updates** (top right) – fetches from GitHub for every installed tool
-  *without changing anything*, so you can see what has updates before deciding.
-- **📁** opens the tool's folder · **GitHub ↗** opens its repo.
+1. Pick a tool card and click **⬇ Install**. This is a one-time download and setup.
+2. Click **▶ Launch**. Watch the black console on the right if you are curious.
+3. When the button changes to **🌐 Open UI**, click it. The tool opens in your browser. Have fun!
+4. When you are done, click **⏹ Stop**.
 
-Nothing installs or updates unless you click it.
+Good to know:
 
----
+- **First launch is slow** for Forge and Fooocus — they download several GB
+  (Fooocus gets about 30 GB of models). Later launches are fast.
+- **⟳ Update** updates a tool. The button turns **orange** with a number when a
+  new version exists. Nothing updates unless you click it.
+- **Check all for updates** (top right) just looks — it changes nothing.
+- **📁** opens the tool's folder. **GitHub ↗** opens its web page.
+- **🛡 Scan** checks the tool's files for danger signs (see below).
 
-## 🔄 Stays in sync with your folders
+## Add your own tool
 
-The app watches the install folder in the background and **follows up automatically** when the
-data on disk changes — no manual refresh:
+Found a cool AI project on GitHub? Click **➕ Add tool** (top right) and paste
+the link. Then click **Download & set up** on its new card, and **▶ Launch**.
 
-- Install, clone, **delete**, or move a tool's folder outside the app → its card updates
-  (Installed ↔ Not installed) within ~2 seconds.
-- Update a tool with `git` outside the app, or check out a different commit → the displayed
-  **branch / version / commit** follows the new state.
-- Edit `tools.json` or change the install folder in **⚙ Settings** → the app reloads it live.
-- A tool's **GitHub “About” introduction** changes → its card description follows. Each card shows
-  the repo's live intro (with a small **↻ GitHub** badge); repos without an About blurb keep the
-  built-in description. Intros refresh on startup, every ~6 hours, and on **Check all for updates**,
-  and are cached so they still show offline.
+The app reads the project and works out how to run it by itself. It handles
+Python apps, Node apps, and projects with a `run.bat` / `run.sh`. If a project
+has no screen of its own, the app even **builds a simple web page for it** so
+you can still use it.
 
-When it notices a change it briefly shows “Updated — refreshed.” (It ignores ordinary model/output
-file writes, so generating images doesn't spam refreshes — it only reacts to install state, git
-position, and repo intros.)
+If the app can't work it out (rare), open **⚙ Run config** on the card and
+paste the start command from that project's README.
 
----
+To remove a tool you added, click **🗑**. This also deletes its files from your disk.
 
-## 🛡 Safety scan
+## Where do the files go?
 
-Every installed tool — built-in or one you added yourself — has a **🛡 Scan** button, and a scan also
-runs **automatically after every install and every update** (so code pulled in by a later update gets
-re-checked, not just the version you first installed). It's a **read-only heuristic check — it never
-executes any scanned code** — that walks the tool's files (skipping the venv and model folders) and flags:
+Tools and models are stored in **`C:\AItools`** on Windows, or **`~/AItools`**
+on a Mac. You can change this in **⚙ Settings**.
 
-- 🔴 **High-risk signals** — obfuscated `exec`/`eval` (base64/hex/marshal), PowerShell `-EncodedCommand`,
-  `curl|wget | sh`, data-exfiltration webhooks (Discord/Telegram), crypto-miner strings, `netcat -e`
-  reverse shells, autostart Run keys, and stray `.exe`/`.dll`/`.scr` files in the repo.
-- 🟡 **Review items** — normal-but-powerful things these tools legitimately do: `subprocess`, network
-  calls, `pickle`/`torch.load`, and pickle-format models (`.ckpt`/`.pt`/`.bin`) that can run code when
-  loaded (prefer `.safetensors`).
+> ⚠️ Keep this folder **out of OneDrive and iCloud**. Cloud sync breaks big
+> model files. The app warns you if you pick a synced folder.
 
-The card shows a verdict — green **“No high-risk signals”** or red **“N high-risk signals”** — and you
-click it for the full report (each finding shows `file:line` + the reason). This is most useful **after
-you add ComfyUI custom nodes or WebUI extensions** (third-party code that runs on launch): hit **Scan**
-to vet them before launching.
+## The safety scan
 
-> ⚠️ It's a heuristic aid, **not a guarantee**. It can miss cleverly hidden malware and can flag harmless
-> code. Treat red as “investigate,” green as “no obvious red flags” — not “certified safe.” Only install
-> nodes/models/extensions from sources you trust.
+Every tool gets a read-only safety check after each install and update — and you
+can run it any time with **🛡 Scan**. It looks for danger signs in the files,
+like hidden code, password stealers, and crypto miners. Green means "no red
+flags found". Red means "read the report before you launch". It never runs any
+of the code it checks.
+
+It is a helper, not a guarantee. Only install things from people you trust.
 
 ---
 
-## 📁 Where things are installed
+## Problems?
 
-Default install folder for the **tools/models**: **`C:\AItools`** (each tool in its own
-subfolder). Change it via **⚙ Settings**.
-
-> ⚠️ Keep the tools folder **out of OneDrive**. Multi-GB models and Python environments synced
-> by OneDrive sync slowly and can corrupt. The app defaults to `C:\AItools` and warns you if
-> you pick a synced path. (Models go inside each tool, e.g.
-> `C:\AItools\ComfyUI\models\checkpoints`.)
-
----
-
-## 🟢 GPU notes (NVIDIA RTX 50-series / Blackwell)
-
-RTX 50-series (Blackwell) GPUs need **CUDA 12.8** PyTorch wheels. The app sets this up: ComfyUI
-installs torch from the `cu128` index, and Forge/Fooocus get a `cu128` `TORCH_COMMAND` override so
-they don't grab an older torch that can't drive a 50-series GPU. On an older GPU, edit `tools.json`
-and change/remove the `cu128` lines.
+- **A tool's first launch takes forever** — normal. It is downloading models.
+  Watch its console tab to see progress.
+- **"Port already in use"** — another program is using that address. Stop it,
+  or change the tool's `port` in `tools.json`.
+- **Mac says the app is damaged or can't be opened** — that is the one-time
+  block for free apps. System Settings → Privacy & Security → **Open Anyway**.
+- **Update says "couldn't reach remote"** — you are offline. Nothing was changed.
+- **Kohya asks for Visual C++ or CUDA (Windows)** — install those from
+  Microsoft / NVIDIA and try again.
 
 ---
 
-## 🔧 Customizing & rebuilding
+## For developers
 
-Everything is driven by **`tools.json`** — ports, `python_version`, the torch index,
-`launch_env`, and the `install`/`launch`/`update` commands. Placeholders filled at runtime:
-`${venv_python}`, `${python}`, `${git}`, `${port}`, `${tool_dir}`, `${clone_url}`, `${branch}`.
+Want to change the app itself? Everything is in this repo.
 
-After editing source, rebuild the app with:
-
-```
-powershell -ExecutionPolicy Bypass -File Build.ps1
-```
-
-That regenerates `MaxStudioHub.exe`, reinstalls it, and refreshes the shortcuts.
-For quick dev runs without rebuilding, double-click **`Start.bat`** (runs the same native
-window straight from source).
-
----
-
-## 🩹 Troubleshooting
-
-- **First launch of a tool takes a while** – Forge/Fooocus download several GB the first time.
-  Watch that tool's console tab; it's normal. Fooocus pulls ~30 GB of default models.
-- **"Port already in use" when launching** – something else is on that port. Stop it or change
-  the tool's `port` in `tools.json` and rebuild.
-- **Update says "couldn't reach remote"** – you're offline; the installed copy is untouched.
-- **Kohya training needs Visual C++ / CUDA toolkit** – install those from Microsoft / NVIDIA
-  if its setup complains.
-
----
-
-## 🧱 Project layout
+- **Run from source:** double-click `Start.bat` (Windows) or run
+  `bash Start.command` (Mac). They set up what they need by themselves.
+- **Build the app:** `powershell -ExecutionPolicy Bypass -File Build.ps1`
+  (Windows) or `bash Build_mac.sh` (Mac). These also install what they need,
+  including Python 3.10 if it is missing.
+- **`tools.json`** controls everything: ports, install and launch commands.
+  A tool can have `"platform_overrides"` with `"windows"`, `"posix"`, `"mac"`,
+  or `"linux"` blocks — that is how the built-in tools use `.bat` files on
+  Windows and `.sh` files on a Mac, and skip CUDA on Macs.
+- **Live edit:** the installed app follows this folder. Change anything in
+  `web/` or `tools.json` and the app picks it up in about 2 seconds — no rebuild.
+  Only `server.py` / `app.py` changes need a rebuild.
+- **Releases are built in the cloud:** publishing a GitHub release runs
+  `.github/workflows/release.yml` — it tests the app on real Windows and Mac
+  machines (`ci/smoke_test.py`, 33 checks), builds both zips, and attaches them
+  to the release. Every push to `main` also runs the tests on both systems.
 
 ```
 AI-Launcher/
-├─ app.py            native window (Edge WebView2) hosting the dashboard
-├─ server.py         stdlib HTTP server + process manager (git/python orchestration)
-├─ web/              dashboard UI (index.html, style.css, app.js)
-├─ tools.json        the registry of the four tools
-├─ assets/app.ico    app icon  (make_icon.py regenerates it)
-├─ Start.bat/.ps1    run the native window from source
-├─ Build.ps1         build MaxStudioHub.exe + install + shortcuts
-└─ config.json       saved settings (install folder)
+├─ app.py               the desktop window
+├─ server.py            the engine: installs, launches, updates, stops tools
+├─ web/                 the dashboard you see (HTML/CSS/JS)
+├─ tools.json           the list of tools and how to run them (per OS)
+├─ assets/              app icons (app.ico for Windows, app.icns for Mac)
+├─ Start.bat / .ps1     run from source on Windows
+├─ Start.command        run from source on a Mac
+├─ Build.ps1            build + install the Windows app
+├─ Build_mac.sh         build + install the Mac app
+├─ ci/smoke_test.py     the automatic test suite
+└─ .github/workflows/   cloud builds and tests
 ```
-
-Update detection uses `git fetch` + `git rev-list --count HEAD..@{u}`, so it can tell you an
-update exists **without** touching your working copy. The app leaves running tools alive when
-you close its window (they run in their own process trees).

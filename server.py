@@ -5,15 +5,18 @@ Max Studio Hub - local control panel for ComfyUI, SD WebUI Forge, Fooocus, and K
 Pure standard-library Python (no pip installs). Serves a small web UI and exposes a
 JSON API to install / launch / update / stop each tool by shelling out to git + python.
 
-Run it via Start.bat (which makes sure a suitable Python 3.10 exists first), or directly:
+Runs on Windows and macOS. Start it via Start.bat (Windows) / Start.command (macOS),
+or directly:
     python server.py
 """
 
+import glob
 import json
 import os
 import re
 import shlex
 import shutil
+import signal
 import socket
 import ssl
 import stat
@@ -27,6 +30,16 @@ import webbrowser
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# --------------------------------------------------------------------------- #
+#  Platform
+# --------------------------------------------------------------------------- #
+IS_WIN = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
+# Key used for per-tool platform overrides in tools.json. "posix" (mac+linux)
+# is also honored as a shared fallback for both non-Windows platforms.
+PLATFORM_KEY = "windows" if IS_WIN else ("mac" if IS_MAC else "linux")
+
+
 def _asset_dir():
     # read-only assets (web/, tools.json). When frozen by PyInstaller they live
     # in the temporary extraction dir.
@@ -36,10 +49,21 @@ def _asset_dir():
 
 
 def _data_dir():
-    # writable data (config.json) — must live next to the exe / script, never in
-    # the read-only bundle.
+    # writable data (config.json). On Windows it lives next to the exe / script.
+    # On macOS the .app bundle may be read-only (or Gatekeeper-translocated), so
+    # frozen builds use ~/Library/Application Support/MaxStudioHub instead.
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        if IS_WIN:
+            return os.path.dirname(sys.executable)
+        base = (os.path.expanduser("~/Library/Application Support") if IS_MAC
+                else os.environ.get("XDG_DATA_HOME")
+                or os.path.expanduser("~/.local/share"))
+        d = os.path.join(base, "MaxStudioHub")
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            pass
+        return d
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -189,23 +213,41 @@ def force_rmtree(path):
 
 
 def is_safe_install_root(path):
-    """Reject drive/UNC roots and top-level system folders so a misconfigured
-    install root can never let tool removal delete system data."""
+    """Reject drive/UNC/filesystem roots and top-level system folders so a
+    misconfigured install root can never let tool removal delete system data."""
     try:
         p = os.path.abspath(path)
     except Exception:
         return False
-    drive, tail = os.path.splitdrive(p)
-    parts = [x for x in tail.replace("/", "\\").split("\\") if x]
-    if not parts:                       # a drive root such as C:\ or a UNC root
+    if IS_WIN:
+        drive, tail = os.path.splitdrive(p)
+        parts = [x for x in tail.replace("/", "\\").split("\\") if x]
+        if not parts:                   # a drive root such as C:\ or a UNC root
+            return False
+        bad = {"windows", "system32", "syswow64", "program files",
+               "program files (x86)", "programdata", "users", "$recycle.bin", "boot"}
+        if parts[0].lower() in bad and len(parts) < 2:
+            return False
+        sysroot = os.environ.get("SystemRoot", "")
+        if sysroot and os.path.normcase(p) == os.path.normcase(os.path.abspath(sysroot)):
+            return False
+        return True
+    # macOS / Linux
+    parts = [x for x in p.split("/") if x]
+    if not parts:                       # "/" itself
         return False
-    bad = {"windows", "system32", "syswow64", "program files",
-           "program files (x86)", "programdata", "users", "$recycle.bin", "boot"}
-    if parts[0].lower() in bad and len(parts) < 2:
+    bad = {"system", "library", "usr", "bin", "sbin", "etc", "var", "private",
+           "dev", "proc", "sys", "boot", "cores", "applications", "volumes",
+           "users", "home"}
+    # e.g. reject /System, /Users, /Users/me, /Volumes/Drive — but allow
+    # /Users/me/AItools and /Volumes/Drive/AItools (3+ components).
+    if parts[0].lower() in bad and len(parts) < 3:
         return False
-    sysroot = os.environ.get("SystemRoot", "")
-    if sysroot and os.path.normcase(p) == os.path.normcase(os.path.abspath(sysroot)):
-        return False
+    try:
+        if os.path.realpath(p) == os.path.realpath(os.path.expanduser("~")):
+            return False                # never use the home folder itself
+    except OSError:
+        pass
     return True
 
 
@@ -354,25 +396,74 @@ demo.launch(server_name="127.0.0.1", server_port=_port, inbrowser=False, show_er
 
 
 def _seed_registry():
-    """In the frozen exe, tools.json ships inside the read-only bundle. Copy it
-    next to the exe on first run so it's user-editable and the disk watcher can
-    live-reload edits. In source mode the paths are identical and this is a no-op."""
+    """In the frozen app, tools.json ships inside the read-only bundle. Copy it
+    to the writable data dir on first run so it's user-editable and the disk
+    watcher can live-reload edits. When a NEWER app version ships an updated
+    registry and the user's copy was never hand-edited, refresh it (a sidecar
+    file remembers which bundled version was seeded). Hand-edited registries
+    are always left alone. In source mode the paths are identical → no-op."""
     try:
-        if (os.path.abspath(REGISTRY_PATH) != os.path.abspath(_BUNDLED_REGISTRY)
-                and os.path.exists(_BUNDLED_REGISTRY)
-                and not os.path.exists(REGISTRY_PATH)):
+        if (os.path.abspath(REGISTRY_PATH) == os.path.abspath(_BUNDLED_REGISTRY)
+                or not os.path.exists(_BUNDLED_REGISTRY)):
+            return
+        import hashlib
+
+        def _sha(p):
+            with open(p, "rb") as f:
+                return hashlib.sha256(f.read()).hexdigest()
+
+        marker = REGISTRY_PATH + ".bundled"     # hash of the bundle last seeded
+        bundled = _sha(_BUNDLED_REGISTRY)
+        if not os.path.exists(REGISTRY_PATH):
             shutil.copyfile(_BUNDLED_REGISTRY, REGISTRY_PATH)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(bundled)
+            return
+        try:
+            with open(marker, "r", encoding="utf-8") as f:
+                seeded = f.read().strip()
+        except OSError:
+            seeded = None
+        if seeded and seeded != bundled and _sha(REGISTRY_PATH) == seeded:
+            # new app version + pristine user copy → take the new registry
+            shutil.copyfile(_BUNDLED_REGISTRY, REGISTRY_PATH)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(bundled)
     except Exception:
         pass
 
 
 _seed_registry()
 
-# Windows process-creation flags
-CREATE_NO_WINDOW = 0x08000000
-CREATE_NEW_PROCESS_GROUP = 0x00000200
+# Windows process-creation flags (harmless zeros elsewhere)
+CREATE_NO_WINDOW = 0x08000000 if IS_WIN else 0
+CREATE_NEW_PROCESS_GROUP = 0x00000200 if IS_WIN else 0
+
+
+def _popen_extra(new_group=False):
+    """Platform-specific subprocess kwargs. Windows: hide console windows (and
+    optionally start a new process group). macOS/Linux: start launched tools in
+    their own session so the whole process tree can be stopped as a group."""
+    if IS_WIN:
+        flags = CREATE_NO_WINDOW | (CREATE_NEW_PROCESS_GROUP if new_group else 0)
+        return {"creationflags": flags}
+    return {"start_new_session": True} if new_group else {}
+
 
 GIT = shutil.which("git")
+if IS_MAC and GIT == "/usr/bin/git":
+    # /usr/bin/git is only a shim until the Xcode Command Line Tools are
+    # installed — running it would pop Apple's installer dialog and hang our
+    # calls. Treat git as missing until the CLT (or Homebrew git) exist.
+    try:
+        _rc = subprocess.run(["/usr/bin/xcode-select", "-p"],
+                             capture_output=True, timeout=5).returncode
+    except Exception:
+        _rc = 1
+    if _rc != 0:
+        _real = next((g for g in ("/opt/homebrew/bin/git", "/usr/local/bin/git")
+                      if os.path.exists(g)), None)
+        GIT = _real
 
 
 # --------------------------------------------------------------------------- #
@@ -408,13 +499,19 @@ def onedrive_roots():
 
 
 def is_under_onedrive(path):
+    """True when the path sits inside a cloud-synced folder — OneDrive on
+    Windows, iCloud Drive on macOS. Bad places for multi-GB models/venvs."""
     try:
         p = os.path.normcase(os.path.abspath(path))
     except Exception:
         return False
-    if "\\onedrive" in p:
-        return True
-    return any(p == r or p.startswith(r + os.sep) for r in onedrive_roots())
+    if IS_WIN:
+        if "\\onedrive" in p:
+            return True
+        return any(p == r or p.startswith(r + os.sep) for r in onedrive_roots())
+    low = p.lower()
+    return ("com~apple~clouddocs" in low
+            or "/library/mobile documents" in low)
 
 
 def port_open(port, host="127.0.0.1", timeout=0.35):
@@ -431,7 +528,7 @@ def run_capture(argv, cwd=None, timeout=25):
         r = subprocess.run(
             argv, cwd=cwd, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout,
-            creationflags=CREATE_NO_WINDOW,
+            **_popen_extra(),
         )
         return r.returncode, (r.stdout or "").strip()
     except Exception as e:
@@ -439,25 +536,77 @@ def run_capture(argv, cwd=None, timeout=25):
 
 
 def pids_on_port(port):
-    """Return the set of PIDs LISTENING on a TCP port (via Windows netstat)."""
+    """Return the set of PIDs LISTENING on a TCP port."""
     pids = set()
-    _rc, out = run_capture(["netstat", "-ano", "-p", "TCP"], timeout=10)
-    needle = f":{port}"
-    for line in out.splitlines():
-        parts = line.split()
-        if (len(parts) >= 5 and parts[3].upper() == "LISTENING"
-                and parts[1].endswith(needle)):
-            pid = parts[-1]
-            if pid.isdigit() and pid != "0":
-                pids.add(int(pid))
+    if IS_WIN:
+        _rc, out = run_capture(["netstat", "-ano", "-p", "TCP"], timeout=10)
+        needle = f":{port}"
+        for line in out.splitlines():
+            parts = line.split()
+            if (len(parts) >= 5 and parts[3].upper() == "LISTENING"
+                    and parts[1].endswith(needle)):
+                pid = parts[-1]
+                if pid.isdigit() and pid != "0":
+                    pids.add(int(pid))
+        return pids
+    # macOS / Linux: lsof ships with both
+    _rc, out = run_capture(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                           timeout=10)
+    for tok in out.split():
+        if tok.isdigit():
+            pids.add(int(tok))
     return pids
+
+
+def kill_pid_tree(pid, timeout=20):
+    """Force-stop a process AND its children. Windows: taskkill /T /F.
+    macOS/Linux: signal its process group (tools are launched in their own
+    session, so the group covers the whole tree), falling back to the pid."""
+    if IS_WIN:
+        run_capture(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=timeout)
+        return
+    try:
+        pgid = os.getpgid(pid)
+    except OSError:
+        # The leader may already be gone and reaped. Tools are spawned as their
+        # own session leaders (start_new_session), so their group id == their
+        # pid — surviving descendants keep it and can still be signaled.
+        pgid = pid
+    try:
+        own = os.getpgid(0)
+    except OSError:
+        own = None
+    use_group = pgid != own                        # never signal our own group
+
+    def _sig(s):
+        try:
+            if use_group:
+                os.killpg(pgid, s)
+            else:
+                os.kill(pid, s)
+            return True
+        except OSError:
+            return False
+
+    def _alive():
+        # probe the whole group when we signaled the group, so a surviving
+        # grandchild still triggers the SIGKILL escalation
+        return _sig(0)
+
+    if not _sig(signal.SIGTERM):
+        return
+    for _ in range(10):                 # short grace period
+        if not _alive():
+            return                      # all gone
+        time.sleep(0.15)
+    _sig(signal.SIGKILL)
 
 
 def kill_port(port):
     """Force-kill every process (and its child tree) listening on a port."""
     killed = []
     for pid in pids_on_port(port):
-        run_capture(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=20)
+        kill_pid_tree(pid)
         killed.append(pid)
     return killed
 
@@ -584,8 +733,8 @@ class Manager:
         self._rebuild_tools()
 
         cfg = load_json(CONFIG_PATH, {}) or {}
-        self.install_root = cfg.get("install_root") or self.registry.get(
-            "default_install_root", "C:\\AItools")
+        root = self._sanitize_root(cfg.get("install_root"))
+        self.install_root = root or self._default_install_root()
         self._save_config()
         self._python_cache = {}
 
@@ -605,12 +754,32 @@ class Manager:
         self._last_desc_fetch = 0.0
 
     # ----- config -----
+    @staticmethod
+    def _sanitize_root(root):
+        """Normalize an install root loaded from config.json: expand ~, and on
+        mac/linux drop a Windows path (e.g. "C:\\AItools" synced over from a
+        Windows machine) so it can't leak through. Returns None if unusable."""
+        if not root:
+            return None
+        root = os.path.expanduser(str(root))
+        if not IS_WIN and re.match(r"^[A-Za-z]:[\\/]", root):
+            return None
+        return root
+
+    def _default_install_root(self):
+        if IS_WIN:
+            return self.registry.get("default_install_root", "C:\\AItools")
+        return os.path.expanduser(
+            self.registry.get("default_install_root_posix", "~/AItools"))
+
     def _save_config(self):
         save_json(CONFIG_PATH, {"install_root": self.install_root})
         # keep the watcher from treating our own write as an external change
         self._cfg_mtime = self._mtime(CONFIG_PATH)
 
     def set_install_root(self, path):
+        # expand ~ so the "~/AItools" the mac UI suggests actually works
+        path = os.path.expanduser((path or "").strip())
         if not is_safe_install_root(path):
             return False
         self.install_root = os.path.abspath(path)
@@ -623,8 +792,26 @@ class Manager:
         data = load_json(CUSTOM_PATH, []) or []
         return data if isinstance(data, list) else []
 
+    @staticmethod
+    def _apply_platform_overrides(tool):
+        """Merge a tool's per-platform override block into the tool definition.
+        tools.json entries may carry:  "platform_overrides": {"windows": {...},
+        "posix": {...}, "mac": {...}, "linux": {...}}  — "posix" applies to both
+        mac and linux; the exact platform key wins over "posix"."""
+        ov = tool.get("platform_overrides")
+        if not isinstance(ov, dict):
+            return tool
+        eff = dict(tool)
+        if not IS_WIN and isinstance(ov.get("posix"), dict):
+            eff.update(ov["posix"])
+        if isinstance(ov.get(PLATFORM_KEY), dict):
+            eff.update(ov[PLATFORM_KEY])
+        eff.pop("platform_overrides", None)
+        return eff
+
     def _rebuild_tools(self):
-        base = list(self.registry.get("tools", []))
+        base = [self._apply_platform_overrides(t)
+                for t in self.registry.get("tools", [])]
         seen = {t["id"] for t in base}
         merged = base
         for c in self._load_custom():
@@ -758,18 +945,39 @@ class Manager:
     def _ensure_node(self, tid):
         if shutil.which("node"):
             return True
-        cand = r"C:\Program Files\nodejs\node.exe"
-        if os.path.exists(cand):
-            os.environ["PATH"] = os.path.dirname(cand) + os.pathsep + os.environ.get("PATH", "")
-            return True
-        self.log(tid, "sys", "Node.js not found — installing it via winget (one-time)…")
-        run_capture(["winget", "install", "-e", "--id", "OpenJS.NodeJS.LTS",
-                     "--accept-source-agreements", "--accept-package-agreements"],
-                    timeout=400)
-        if os.path.exists(cand):
-            os.environ["PATH"] = os.path.dirname(cand) + os.pathsep + os.environ.get("PATH", "")
-            return True
-        return bool(shutil.which("node"))
+        if IS_WIN:
+            cand = r"C:\Program Files\nodejs\node.exe"
+            if os.path.exists(cand):
+                os.environ["PATH"] = os.path.dirname(cand) + os.pathsep + os.environ.get("PATH", "")
+                return True
+            self.log(tid, "sys", "Node.js not found — installing it via winget (one-time)…")
+            run_capture(["winget", "install", "-e", "--id", "OpenJS.NodeJS.LTS",
+                         "--accept-source-agreements", "--accept-package-agreements"],
+                        timeout=400)
+            if os.path.exists(cand):
+                os.environ["PATH"] = os.path.dirname(cand) + os.pathsep + os.environ.get("PATH", "")
+                return True
+            return bool(shutil.which("node"))
+        # macOS / Linux
+        for cand in ("/opt/homebrew/bin/node", "/usr/local/bin/node",
+                     "/usr/bin/node"):
+            if os.path.exists(cand):
+                os.environ["PATH"] = os.path.dirname(cand) + os.pathsep + os.environ.get("PATH", "")
+                return True
+        brew = shutil.which("brew") or next(
+            (b for b in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew")
+             if os.path.exists(b)), None)
+        if IS_MAC and brew:
+            self.log(tid, "sys", "Node.js not found — installing it via Homebrew (one-time)…")
+            run_capture([brew, "install", "node"], timeout=900)
+            for cand in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
+                if os.path.exists(cand):
+                    os.environ["PATH"] = os.path.dirname(cand) + os.pathsep + os.environ.get("PATH", "")
+                    return True
+            return bool(shutil.which("node"))
+        self.log(tid, "err", "Node.js is required for this tool — install it "
+                             "from https://nodejs.org then Launch again.")
+        return False
 
     @staticmethod
     def _local_module_names(tdir, root_files):
@@ -1027,9 +1235,15 @@ class Manager:
         has_pyproj = bool(rget("pyproject.toml") or rget("setup.py"))
         has_py = bool(rq) or has_pyproj or bool(rget("environment.yml")) \
             or any(f.lower().endswith(".py") for f in root_files)
-        setup_bat = rget("setup.bat") or rget("install.bat")
-        run_bat = (rget("run.bat") or rget("start.bat") or rget("webui-user.bat")
-                   or rget("webui.bat") or rget("gui.bat") or rget("run_gui.bat"))
+        if IS_WIN:
+            setup_bat = rget("setup.bat") or rget("install.bat")
+            run_bat = (rget("run.bat") or rget("start.bat") or rget("webui-user.bat")
+                       or rget("webui.bat") or rget("gui.bat") or rget("run_gui.bat"))
+        else:   # macOS / Linux — prefer the repo's shell scripts
+            setup_bat = rget("setup.sh") or rget("install.sh")
+            run_bat = (rget("run.sh") or rget("start.sh") or rget("webui.sh")
+                       or rget("gui.sh") or rget("run_gui.sh") or rget("launch.sh")
+                       or rget("start.command"))
         dockerfile = rget("docker-compose.yml") or rget("compose.yaml") or rget("dockerfile")
 
         if has_pkgjson:
@@ -1119,7 +1333,8 @@ class Manager:
             kind = "script"
             install = [[setup_bat]] if setup_bat else []
             launch = [run_bat] if run_bat else []
-            notes = "Script-based repo (Windows .bat)."
+            notes = ("Script-based repo (Windows .bat)." if IS_WIN
+                     else "Script-based repo (shell script).")
         elif dockerfile and shutil.which("docker"):
             kind = "docker"
             launch = ["docker", "compose", "up"]
@@ -1168,7 +1383,8 @@ class Manager:
                 parts = run_cmd.strip().split()
             if parts:
                 head = parts[0].lower()
-                if head in ("python", "python.exe", "py"):
+                pyish = ("python", "python.exe", "py") if IS_WIN else ("python", "python3")
+                if head in pyish:
                     parts[0] = "${venv_python}"
                     tool["needs_venv"] = True
                 tool["launch_cmd"] = parts
@@ -1202,7 +1418,9 @@ class Manager:
         return os.path.join(self.install_root, tool["dir"])
 
     def venv_python(self, tool):
-        return os.path.join(self.tool_dir(tool), "venv", "Scripts", "python.exe")
+        if IS_WIN:
+            return os.path.join(self.tool_dir(tool), "venv", "Scripts", "python.exe")
+        return os.path.join(self.tool_dir(tool), "venv", "bin", "python")
 
     def is_installed(self, tool):
         return os.path.isdir(os.path.join(self.tool_dir(tool), ".git"))
@@ -1218,12 +1436,12 @@ class Manager:
         if (version == cur and not getattr(sys, "frozen", False)
                 and "windowsapps" not in sys.executable.lower()):
             found = sys.executable
-        if not found:
+        if not found and IS_WIN:
             rc, out = run_capture(["py", f"-{version}", "-c",
                                    "import sys;print(sys.executable)"], timeout=12)
             if rc == 0 and out and os.path.exists(out):
                 found = out
-        if not found:
+        if not found and IS_WIN:
             v = version.replace(".", "")
             cands = [
                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs",
@@ -1236,6 +1454,33 @@ class Manager:
                 if c and os.path.exists(c):
                     found = c
                     break
+        if not found and not IS_WIN:
+            # macOS / Linux: PATH first, then Homebrew, python.org framework,
+            # and pyenv installs.
+            found = shutil.which(f"python{version}")
+            if not found:
+                cands = [
+                    f"/opt/homebrew/bin/python{version}",
+                    f"/usr/local/bin/python{version}",
+                    ("/Library/Frameworks/Python.framework/Versions/"
+                     f"{version}/bin/python{version}"),
+                    f"/usr/bin/python{version}",
+                ]
+                cands += sorted(glob.glob(os.path.expanduser(
+                    f"~/.pyenv/versions/{version}.*/bin/python")), reverse=True)
+                for c in cands:
+                    if c and os.path.exists(c):
+                        found = c
+                        break
+            if not found:
+                # a plain `python3` of the right minor version also works
+                p3 = shutil.which("python3")
+                if p3:
+                    rc, out = run_capture(
+                        [p3, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+                        timeout=8)
+                    if rc == 0 and out.strip() == version:
+                        found = p3
         # Cache only positive results — caching None would keep reporting Python as
         # missing even after the user installs it, until the app is restarted.
         if found:
@@ -1260,13 +1505,13 @@ class Manager:
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONUTF8"] = "1"
         env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-        # Make sure the tool's required python is first on PATH (matters for .bat
-        # installers like setup.bat / webui.bat that call bare `python`).
+        # Make sure the tool's required python is first on PATH (matters for
+        # script installers like setup.bat / webui.sh that call bare `python`).
         py = self.resolve_python(tool.get("python_version", "3.10"))
         if py:
             d = os.path.dirname(py)
-            env["PATH"] = d + os.pathsep + os.path.join(d, "Scripts") + \
-                os.pathsep + env.get("PATH", "")
+            parts = [d, os.path.join(d, "Scripts")] if IS_WIN else [d]
+            env["PATH"] = os.pathsep.join(parts) + os.pathsep + env.get("PATH", "")
         for k, v in (tool.get("launch_env") or {}).items():
             env[k] = self.subst(v, tool)
         return env
@@ -1281,13 +1526,19 @@ class Manager:
 
     @staticmethod
     def _wrap(argv):
-        """Run .bat/.cmd and the node package-manager shims through cmd /c."""
+        """Windows: run .bat/.cmd and the node package-manager shims through
+        cmd /c. macOS/Linux: run shell scripts through bash (works whether or
+        not the clone preserved the executable bit)."""
         if not argv:
             return argv
         head = argv[0].lower()
-        if (head.endswith(".bat") or head.endswith(".cmd")
-                or os.path.basename(head) in ("npm", "pnpm", "yarn", "npx")):
-            return ["cmd", "/c"] + argv
+        if IS_WIN:
+            if (head.endswith(".bat") or head.endswith(".cmd")
+                    or os.path.basename(head) in ("npm", "pnpm", "yarn", "npx")):
+                return ["cmd", "/c"] + argv
+            return argv
+        if head.endswith(".sh") or head.endswith(".command"):
+            return ["bash"] + argv
         return argv
 
     # ----- low-level streamed step -----
@@ -1302,7 +1553,7 @@ class Manager:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL, text=True, bufsize=1,
                 encoding="utf-8", errors="replace",
-                creationflags=CREATE_NO_WINDOW,
+                **_popen_extra(),
             )
         except FileNotFoundError as e:
             self.log(tid, "err", f"command not found: {e}")
@@ -1514,7 +1765,7 @@ class Manager:
             self.log(tid, "sys", f"Port {_port} was busy — stopping the old "
                                  f"instance first…")
             for ppid in pids_on_port(_port):
-                run_capture(["taskkill", "/PID", str(ppid), "/T", "/F"], timeout=20)
+                kill_pid_tree(ppid)
             for _ in range(40):
                 if not port_open(_port):
                     break
@@ -1598,7 +1849,7 @@ class Manager:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL, text=True, bufsize=1,
                 encoding="utf-8", errors="replace",
-                creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
+                **_popen_extra(new_group=True),
             )
         except Exception as e:
             self.log(tid, "err", f"Launch failed: {e}")
@@ -1671,7 +1922,7 @@ class Manager:
         killed = set()
         # 1) the process we launched, plus its whole child tree
         if pid:
-            run_capture(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=20)
+            kill_pid_tree(pid)
             killed.add(pid)
         # 2) anything still holding the tool's port — covers an instance left
         #    running from a previous launcher session, so nothing lingers.
@@ -1681,7 +1932,7 @@ class Manager:
                     continue
                 self.log(tid, "sys",
                          f"Also stopping leftover process {ppid} on port {port}…")
-                run_capture(["taskkill", "/PID", str(ppid), "/T", "/F"], timeout=20)
+                kill_pid_tree(ppid)
                 killed.add(ppid)
         # give the pump thread a moment to notice the exit
         for _ in range(20):
@@ -1928,8 +2179,10 @@ class Manager:
 
     def _reload_config(self):
         cfg = load_json(CONFIG_PATH, {}) or {}
-        root = cfg.get("install_root")
+        root = self._sanitize_root(cfg.get("install_root"))
         if root and os.path.abspath(root) != os.path.abspath(self.install_root):
+            if not is_safe_install_root(root):
+                return False
             self.install_root = os.path.abspath(root)
             self.revision += 1
             return True
@@ -2008,6 +2261,7 @@ class Manager:
         if GIT:
             _, git_ver = run_capture([GIT, "--version"])
         return {
+            "platform": PLATFORM_KEY,
             "git": {"ok": bool(GIT), "path": GIT, "version": git_ver},
             "python": {"ok": bool(py310), "path": py310, "version": py_ver},
             "install_root": self.install_root,
@@ -2217,9 +2471,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "empty path"}, 400)
                 return
             if not M.set_install_root(root):
+                example = "C:\\AItools" if IS_WIN else "~/AItools"
+                bad_ex = "C:\\" if IS_WIN else "/ or /Volumes/Drive"
                 self._send_json({"ok": False, "error": (
-                    "That folder isn't allowed (don't use a drive root like C:\\ or "
-                    "a system folder). Pick something like C:\\AItools.")}, 400)
+                    f"That folder isn't allowed (don't use a drive root like {bad_ex} "
+                    f"or a system folder). Pick something like {example}.")}, 400)
                 return
             self._send_json({"ok": True, "prereqs": M.prereqs(),
                              "tools": M.status_all()})
@@ -2234,7 +2490,12 @@ class Handler(BaseHTTPRequestHandler):
                 target = d if os.path.isdir(d) else M.install_root
                 if not os.path.isdir(target):
                     os.makedirs(target, exist_ok=True)
-                os.startfile(target)  # noqa
+                if IS_WIN:
+                    os.startfile(target)  # noqa
+                elif IS_MAC:
+                    subprocess.Popen(["open", target])
+                else:
+                    subprocess.Popen(["xdg-open", target])
                 self._send_json({"ok": True})
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
@@ -2246,7 +2507,7 @@ def shutdown_all():
     for t in M.tools:
         rt = M.rt[t["id"]]
         if rt.pid:
-            run_capture(["taskkill", "/PID", str(rt.pid), "/T", "/F"], timeout=10)
+            kill_pid_tree(rt.pid, timeout=10)
 
 
 def make_server(port=None):

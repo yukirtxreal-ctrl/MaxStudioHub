@@ -1,0 +1,29 @@
+# Max Studio Hub — CI on every push / PR: run the backend smoke test on real
+# Windows and macOS machines. (Release downloads are built by release.yml.)
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Smoke test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run backend smoke test on this OS
+        run: python ci/smoke_test.py

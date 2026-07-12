@@ -18,8 +18,22 @@ function Find-Py310 {
   return $null
 }
 
+function Refresh-Path {
+  $m = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  $u = [Environment]::GetEnvironmentVariable("Path", "User")
+  $env:Path = ($m, $u | Where-Object { $_ }) -join ";"
+}
+
 $py = Find-Py310
-if (-not $py) { Write-Host "Python 3.10 not found - run Start.bat once to install it." -ForegroundColor Red; exit 1 }
+if (-not $py) {
+  # self-bootstrap on a fresh PC (same as Start.ps1)
+  Write-Host "Python 3.10 not found - installing it via winget (one-time)..." -ForegroundColor Yellow
+  if (Get-Command winget -ErrorAction SilentlyContinue) {
+    winget install -e --id Python.Python.3.10 --scope user --accept-source-agreements --accept-package-agreements
+    Refresh-Path; Start-Sleep 2; $py = Find-Py310
+  }
+}
+if (-not $py) { Write-Host "Python 3.10 is required. Install from https://www.python.org/downloads/release/python-31011/ then retry." -ForegroundColor Red; exit 1 }
 
 $venv = Join-Path $here ".venv"
 $vpy  = Join-Path $venv "Scripts\python.exe"

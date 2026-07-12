@@ -57,12 +57,23 @@ async function bootstrap() {
   renderCards();
 }
 
+// Small platform helpers (the backend reports "windows" / "mac" / "linux")
+function plat() { return (state.prereqs && state.prereqs.platform) || "windows"; }
+function isMac() { return plat() === "mac"; }
+function fileManagerName() { return isMac() ? "Finder" : "Explorer"; }
+
 function renderPrereqs() {
   const p = state.prereqs, bar = $("#prereqBar");
   const problems = [];
-  if (!p.git.ok) problems.push("Git is not installed. Install <a href='https://git-scm.com/download/win' target='_blank'>Git for Windows</a>, then restart the launcher.");
-  if (!p.python.ok) problems.push("Python 3.10 was not found. Re-run <code>Start.bat</code> (it can install it), or install Python 3.10 manually.");
-  if (p.onedrive_warning) problems.push("⚠ Your install folder is inside <b>OneDrive</b> — multi-GB models will corrupt or sync slowly. Open ⚙ Settings and change it to e.g. <code>C:\\AItools</code>.");
+  if (!p.git.ok) problems.push(isMac()
+    ? "Git is not installed. Open the <b>Terminal</b> app and run <code>xcode-select --install</code> (Apple's developer tools include Git), then restart the launcher."
+    : "Git is not installed. Install <a href='https://git-scm.com/download/win' target='_blank'>Git for Windows</a>, then restart the launcher.");
+  if (!p.python.ok) problems.push(isMac()
+    ? "Python 3.10 was not found. Install it with <a href='https://brew.sh' target='_blank'>Homebrew</a> (<code>brew install python@3.10</code>) or the <a href='https://www.python.org/downloads/release/python-31011/' target='_blank'>python.org installer</a>, then restart the launcher."
+    : "Python 3.10 was not found. Re-run <code>Start.bat</code> (it can install it), or install Python 3.10 manually.");
+  if (p.onedrive_warning) problems.push(isMac()
+    ? "⚠ Your install folder is inside <b>iCloud Drive</b> — multi-GB models will corrupt or sync slowly. Open ⚙ Settings and change it to e.g. <code>~/AItools</code>."
+    : "⚠ Your install folder is inside <b>OneDrive</b> — multi-GB models will corrupt or sync slowly. Open ⚙ Settings and change it to e.g. <code>C:\\AItools</code>.");
   if (problems.length) {
     bar.classList.remove("hidden", "ok");
     bar.innerHTML = "🛠 " + problems.join(" &nbsp;·&nbsp; ");
@@ -92,7 +103,7 @@ function cardButtons(t) {
   const repoBtn = `<a class="btn btn-tiny btn-ghost" href="${esc(t.repo)}" target="_blank" title="Open GitHub repo">GitHub ↗</a>`;
   const busy = ["installing", "updating", "stopping"].includes(t.state);
   const revealTitle = t.installed
-    ? "Open this tool's folder in Explorer"
+    ? `Open this tool's folder in ${fileManagerName()}`
     : "Open the install folder (this tool isn't downloaded yet)";
   const revealBtn = `<button class="btn btn-ghost btn-tiny" data-act="reveal" data-id="${t.id}" title="${revealTitle}">📁</button>`;
   const scanBtn = `<button class="btn btn-ghost btn-tiny" data-act="scan" data-id="${t.id}" ${t.scanning ? "disabled" : ""} title="Read-only safety scan of this tool's files">
@@ -387,12 +398,16 @@ function confirmDialog(title, msg) {
 
 function openSettings() {
   const p = state.prereqs;
+  const cloudName = isMac() ? "iCloud Drive" : "OneDrive";
   $("#installRootInput").value = p.install_root;
+  $("#installRootHint").innerHTML = isMac()
+    ? "Where tools, models &amp; virtual-envs live. <strong>Keep this OUTSIDE iCloud Drive</strong> (and Desktop/Documents if they're synced) — syncing multi-GB model files will corrupt them. e.g. <code>~/AItools</code>"
+    : "Where tools, models &amp; virtual-envs live. <strong>Keep this OUTSIDE OneDrive</strong> — syncing multi-GB model files will corrupt them and thrash your disk. e.g. <code>C:\\AItools</code>";
   $("#envInfo").innerHTML = `
     <span class="k">Git</span><span class="v ${p.git.ok ? "good" : "bad"}">${esc(p.git.version || "missing")}</span>
     <span class="k">Python 3.10</span><span class="v ${p.python.ok ? "good" : "bad"}">${esc(p.python.version || "missing")}</span>
     <span class="k">Python path</span><span class="v">${esc(p.python.path || "—")}</span>
-    <span class="k">OneDrive</span><span class="v ${p.onedrive_warning ? "bad" : "good"}">${p.onedrive_warning ? "install path is synced (bad)" : "ok (not synced)"}</span>`;
+    <span class="k">${cloudName}</span><span class="v ${p.onedrive_warning ? "bad" : "good"}">${p.onedrive_warning ? "install path is synced (bad)" : "ok (not synced)"}</span>`;
   openSettings._lastRoot = p.install_root;
   openModal("#settingsModal");
 }

@@ -1,6 +1,7 @@
 {
-  "_comment": "Registry of managed AI tools. You can edit ports, python_version, torch index, and launch_env here. ${...} placeholders are filled in at runtime by server.py: ${venv_python}, ${python}, ${git}, ${port}, ${tool_dir}, ${clone_url}, ${branch}.",
+  "_comment": "Registry of managed AI tools. You can edit ports, python_version, torch index, and launch_env here. ${...} placeholders are filled in at runtime by server.py: ${venv_python}, ${python}, ${git}, ${port}, ${tool_dir}, ${clone_url}, ${branch}. A tool may also carry 'platform_overrides': {'windows': {...}, 'posix': {...}, 'mac': {...}, 'linux': {...}} — those keys replace the tool's top-level keys on that platform ('posix' covers mac+linux; the exact platform key wins over 'posix').",
   "default_install_root": "C:\\AItools",
+  "default_install_root_posix": "~/AItools",
   "launcher_port": 8765,
   "tools": [
     {
@@ -32,7 +33,18 @@
       "update_steps": [
         ["${venv_python}", "-m", "pip", "install", "-r", "requirements.txt"]
       ],
-      "notes": "ComfyUI-Manager is bundled in automatically (custom_nodes/comfyui-manager) — use the 'Manager' button in the ComfyUI UI to install custom nodes & models. Place model checkpoints in ComfyUI\\models\\checkpoints. torch installs from the CUDA 12.8 (cu128) index for RTX 50-series — uses --index-url (NOT --extra-index-url) so pip can't fall back to the CPU build on PyPI. For ComfyUI's newest optimized CUDA kernels you can switch the index to cu130; cu128 works fine otherwise."
+      "notes": "ComfyUI-Manager is bundled in automatically (custom_nodes/comfyui-manager) — use the 'Manager' button in the ComfyUI UI to install custom nodes & models. Place model checkpoints in ComfyUI\\models\\checkpoints. torch installs from the CUDA 12.8 (cu128) index for RTX 50-series — uses --index-url (NOT --extra-index-url) so pip can't fall back to the CPU build on PyPI. For ComfyUI's newest optimized CUDA kernels you can switch the index to cu130; cu128 works fine otherwise.",
+      "platform_overrides": {
+        "posix": {
+          "install_steps": [
+            ["${venv_python}", "-m", "pip", "install", "--upgrade", "pip", "wheel"],
+            ["${venv_python}", "-m", "pip", "install", "-r", "requirements.txt"],
+            ["${git}", "clone", "https://github.com/Comfy-Org/ComfyUI-Manager.git", "custom_nodes/comfyui-manager"],
+            ["${venv_python}", "-m", "pip", "install", "-r", "custom_nodes/comfyui-manager/requirements.txt"]
+          ],
+          "notes": "Runs great on Apple Silicon — PyTorch uses Metal (MPS) automatically, installed straight from PyPI (no CUDA index needed). ComfyUI-Manager is bundled in automatically (custom_nodes/comfyui-manager) — use the 'Manager' button inside ComfyUI to add custom nodes & models. Place model checkpoints in ComfyUI/models/checkpoints."
+        }
+      }
     },
     {
       "id": "forge",
@@ -58,7 +70,16 @@
         "TORCH_COMMAND": "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128"
       },
       "update_steps": [],
-      "notes": "First launch builds its own venv and downloads ~6GB of torch/deps (several minutes). TORCH_COMMAND is overridden to cu128 for RTX 50-series; clear it if you are on an older GPU."
+      "notes": "First launch builds its own venv and downloads ~6GB of torch/deps (several minutes). TORCH_COMMAND is overridden to cu128 for RTX 50-series; clear it if you are on an older GPU.",
+      "platform_overrides": {
+        "posix": {
+          "launch_cmd": ["webui.sh", "--port", "${port}"],
+          "launch_env": {
+            "python_cmd": "${python}"
+          },
+          "notes": "Runs via the repo's own webui.sh (it sources webui-macos-env.sh on Macs and sets itself up on first launch — several GB, be patient). Forge is CUDA-first: on Apple Silicon it runs on Metal (MPS) but is EXPERIMENTAL and slower — ComfyUI or Fooocus are the smoother choices on a Mac."
+        }
+      }
     },
     {
       "id": "fooocus",
@@ -86,7 +107,13 @@
         "TORCH_COMMAND": "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128"
       },
       "update_steps": [],
-      "notes": "First launch installs deps and downloads ~30GB of default SDXL models. entry_with_update.py self-updates (git pull) every launch. TORCH_COMMAND overridden to cu128 for RTX 50-series."
+      "notes": "First launch installs deps and downloads ~30GB of default SDXL models. entry_with_update.py self-updates (git pull) every launch. TORCH_COMMAND overridden to cu128 for RTX 50-series.",
+      "platform_overrides": {
+        "posix": {
+          "launch_env": {},
+          "notes": "First launch installs deps and downloads ~30GB of default SDXL models. entry_with_update.py self-updates (git pull) every launch. On Apple Silicon, torch comes from PyPI and generates on Metal (MPS) — noticeably slower than an NVIDIA card, but it works. If model loading feels slow on an M2 or newer, add --disable-offload-from-vram to the run command."
+        }
+      }
     },
     {
       "id": "kohya",
@@ -113,7 +140,19 @@
       "update_steps": [
         ["setup.bat"]
       ],
-      "notes": "Uses a git submodule (sd-scripts) — cloned with --recurse-submodules and updated with submodule update. Port set to 7806 to avoid clashing with Forge (7860). setup.bat builds its own venv."
+      "notes": "Uses a git submodule (sd-scripts) — cloned with --recurse-submodules and updated with submodule update. Port set to 7806 to avoid clashing with Forge (7860). setup.bat builds its own venv.",
+      "platform_overrides": {
+        "posix": {
+          "install_steps": [
+            ["setup.sh", "-n", "-u"]
+          ],
+          "launch_cmd": ["gui.sh", "--server_port", "${port}", "--inbrowser"],
+          "update_steps": [
+            ["setup.sh", "-n", "-u"]
+          ],
+          "notes": "Uses the repo's own setup.sh / gui.sh (they detect macOS and pick the Apple-Silicon requirements; Homebrew fills in any missing bits). Training is CUDA-first: on a Mac it is LIMITED and slow — fine for exploring the GUI, but serious LoRA training really wants an NVIDIA GPU. setup.sh builds its own venv."
+        }
+      }
     }
   ]
 }

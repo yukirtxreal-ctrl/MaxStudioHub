@@ -1,0 +1,186 @@
+# Max Studio Hub — release builds
+#
+# Fires when a GitHub release is published (the MaxStudioHub_release.bat script
+# does that) and attaches TWO downloads to it, each built and smoke-tested on a
+# real machine of that OS:
+#
+#   MaxStudioHub-Windows.zip   (folder with MaxStudioHub.exe)
+#   MaxStudioHub-macOS.zip     (Max Studio Hub.app — Apple Silicon)
+#
+# Can also be run by hand from the Actions tab (workflow_dispatch) against an
+# existing tag, e.g. to rebuild a release's downloads.
+
+name: Release builds
+
+on:
+  release:
+    types: [published]
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build downloads for (e.g. v1.0.3)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-builds-${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  APP_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  # ---------------------------------------------------------------- smoke test
+  test:
+    name: Smoke test (${{ matrix.os }})
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run backend smoke test on this OS
+        run: python ci/smoke_test.py
+
+  # -------------------------------------------- make sure the release exists
+  # (pushing a tag like v1.0.3 lands here — the release is created from
+  #  release_notes.md, then the two downloads below get attached to it)
+  prepare:
+    name: Create the release if missing
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+      - name: Create release for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$APP_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $APP_TAG already exists"
+          else
+            NOTES=release_notes.md
+            [ -f "$NOTES" ] || { echo "Release $APP_TAG" > /tmp/notes.md; NOTES=/tmp/notes.md; }
+            gh release create "$APP_TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "Max Studio Hub $APP_TAG" --notes-file "$NOTES"
+          fi
+
+  # ------------------------------------------------------------- Windows build
+  build-windows:
+    name: Build Windows download
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pywebview pyinstaller pillow
+          python -c "import webview; print('pywebview OK')"
+      - name: Build MaxStudioHub.exe
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name MaxStudioHub `
+            --icon assets\app.ico `
+            --add-data "web;web" `
+            --add-data "tools.json;." `
+            app.py
+      - name: Package MaxStudioHub-Windows.zip
+        run: |
+          Compress-Archive -Path dist\MaxStudioHub\* -DestinationPath dist\MaxStudioHub-Windows.zip -Force
+          Get-Item dist\MaxStudioHub-Windows.zip | Format-List Name,Length
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:APP_TAG" dist\MaxStudioHub-Windows.zip --clobber
+
+  # --------------------------------------------------------------- macOS build
+  build-macos:
+    name: Build macOS download (Apple chip + Intel)
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+      # python.org's build is universal2 (arm64 + x86_64), so the app can run
+      # on BOTH Apple-chip and Intel Macs. setup-python is single-arch, so we
+      # install the official python.org build instead.
+      - name: Install Python 3.12 (universal2)
+        run: |
+          curl -sLo /tmp/python.pkg https://www.python.org/ftp/python/3.12.8/python-3.12.8-macos11.pkg
+          sudo installer -pkg /tmp/python.pkg -target /
+          /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 --version
+      - name: Install build tools
+        run: |
+          PY=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+          $PY -m pip install --upgrade pip
+          $PY -m pip install pywebview pyinstaller pillow
+          $PY -c "import webview; print('pywebview OK')"
+      - name: Build Max Studio Hub.app (universal, falls back to Apple-chip-only)
+        run: |
+          PY=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+          build_app () {
+            $PY -m PyInstaller --noconfirm --clean --windowed --name "Max Studio Hub" \
+              --icon assets/app.icns \
+              --osx-bundle-identifier com.maxstudiohub.launcher \
+              --add-data "web:web" \
+              --add-data "tools.json:." \
+              "$@" app.py
+          }
+          if ! build_app --target-arch universal2; then
+            echo "::warning::universal2 build failed — falling back to this runner's native arch"
+            build_app
+          fi
+          BIN="dist/Max Studio Hub.app/Contents/MacOS/Max Studio Hub"
+          echo "architectures in the app binary:"; lipo -archs "$BIN" || true
+          ls -la "dist/Max Studio Hub.app/Contents/MacOS"
+      - name: Package MaxStudioHub-macOS.zip
+        run: |
+          mkdir -p "dist/pkg/Max Studio Hub"
+          mv "dist/Max Studio Hub.app" "dist/pkg/Max Studio Hub/"
+          cat > "dist/pkg/Max Studio Hub/How to open on Mac — READ ME.txt" <<'EOF'
+          Max Studio Hub — opening it the first time on a Mac
+          ====================================================
+
+          1. Drag "Max Studio Hub.app" into your Applications folder.
+          2. Double-click it. macOS will likely block it the first time,
+             because this free app isn't notarized with Apple.
+          3. Open  System Settings → Privacy & Security , scroll down to the
+             message about "Max Studio Hub", click "Open Anyway", and confirm.
+             (On older macOS versions: right-click the app → Open → Open.)
+
+          That's needed exactly once — afterwards it opens like any other app.
+
+          Terminal alternative:
+             xattr -cr "/Applications/Max Studio Hub.app"
+
+          Requirements
+          ------------
+          • A Mac with macOS 11 or newer (Apple chip or Intel — Apple chip
+            is much faster for making images)
+          • For the AI tools themselves: Git (run: xcode-select --install)
+            and Python 3.10 (brew install python@3.10) — the app shows a
+            banner with instructions if either is missing.
+          EOF
+          ditto -c -k --sequesterRsrc --keepParent "dist/pkg/Max Studio Hub" dist/MaxStudioHub-macOS.zip
+          ls -la dist/MaxStudioHub-macOS.zip
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$APP_TAG" dist/MaxStudioHub-macOS.zip --clobber

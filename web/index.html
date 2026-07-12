@@ -78,7 +78,7 @@
       <div class="modal-body">
         <label class="field">
           <span class="field-label">Install root folder</span>
-          <span class="field-hint">Where tools, models &amp; virtual-envs live. <strong>Keep this OUTSIDE OneDrive</strong> — syncing multi-GB model files will corrupt them and thrash your disk.</span>
+          <span class="field-hint" id="installRootHint">Where tools, models &amp; virtual-envs live. <strong>Keep this OUTSIDE OneDrive / iCloud Drive</strong> — syncing multi-GB model files will corrupt them and thrash your disk.</span>
           <input id="installRootInput" type="text" spellcheck="false" />
         </label>
         <div class="field">
@@ -116,7 +116,7 @@
         <p class="field-hint" style="margin-bottom:14px">
           Paste any <strong>GitHub</strong> repo link (or <code>owner/repo</code>). The app downloads it
           and works out how to install &amp; run it — it figures out Python apps (incl. Gradio/Streamlit),
-          Node apps, and repos with a <code>run.bat</code>. You don't need to know how to code.
+          Node apps, and repos with a <code>run.bat</code> / <code>run.sh</code>. You don't need to know how to code.
         </p>
         <label class="field">
           <span class="field-label">Repository</span>
@@ -148,7 +148,7 @@
           Check the repo's README for the right command.</p>
         <label class="field">
           <span class="field-label">Run command</span>
-          <span class="field-hint">e.g. <code>python app.py</code>, <code>python webui.py --port 7860</code>, <code>npm run dev</code>, <code>run.bat</code></span>
+          <span class="field-hint">e.g. <code>python app.py</code>, <code>python webui.py --port 7860</code>, <code>npm run dev</code>, <code>run.bat</code> / <code>run.sh</code></span>
           <input id="runcfgCmd" type="text" spellcheck="false" />
         </label>
         <label class="field">
